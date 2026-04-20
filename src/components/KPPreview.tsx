@@ -183,6 +183,9 @@ function recalcSection(section: KPResult['sections'][0]) {
 
 // ====== MAIN COMPONENT ======
 
+const BUILD_TAG = '2026-04-20-canvas-v3'
+console.log(`[KP] Module loaded, build: ${BUILD_TAG}`)
+
 export function KPPreview({ kp, parsed, catalog }: Props) {
   const isInno = kp.company === 'inno'
   const [generating, setGenerating] = useState(false)
@@ -277,6 +280,7 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
 
   // PDF — генерация в стиле актуальных КП менеджеров
   const handleDownloadPDF = async () => {
+    console.log(`[KP-PDF] handleDownloadPDF called, build: ${BUILD_TAG}, isInno: ${isInno}`)
     setGenerating(true)
     const currentKP = getCurrentKP()
 
@@ -603,6 +607,7 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
           <div><span className="text-white/60">До КП:</span> {(isInno ? innoSlidesBefore : bondaSlidesBefore).length} слайдов</div>
           <div><span className="text-white/60">После КП:</span> {(isInno ? innoSlidesAfter : bondaSlidesAfter).length} слайдов</div>
         </div>
+        <div className="text-[10px] text-white/20 mt-2 text-right">build: {BUILD_TAG}</div>
       </div>
 
       {/* Download PDF */}
