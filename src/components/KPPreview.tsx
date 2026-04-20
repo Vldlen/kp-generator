@@ -378,226 +378,217 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
           doc.text(`Ежемесячно: ${formatMoney(currentKP.monthlyTotal)}`, slideW / 2, bY + 25, { align: 'center' })
         }
       } else {
-      // === ИННО: коммерческий слайд в стиле реальных КП ===
-
-      // Заголовок типа лицензии
+      // === ИННО: коммерческий слайд (стиль реальных КП менеджеров) ===
       const title = licenseSlideTitle[licType] || 'Inno Clouds'
+      const subtitle = licenseSlideSubtitle[licType] || ''
+
+      // --- Заголовок ---
       doc.setFont('Lato', 'bold')
       doc.setTextColor(...darkText)
-      doc.setFontSize(22)
-      doc.text(title, 16, 20)
+      doc.setFontSize(24)
+      doc.text(title, 16, 22)
 
-      // Подзаголовок
-      const subtitle = licenseSlideSubtitle[licType] || ''
-      if (subtitle) {
-        doc.setFont('Lato', 'normal')
-        doc.setFontSize(8)
-        doc.setTextColor(...grayText)
-        doc.text(subtitle, slideW - 16, 14, { align: 'right', maxWidth: 100 })
-      }
-
-      // Стрелка после заголовка
+      // Стрелка
       const titleW = doc.getTextWidth(title)
       doc.setDrawColor(...brandOrange)
-      doc.setLineWidth(0.5)
-      doc.line(16 + titleW + 6, 17, 16 + titleW + 35, 17)
-      doc.line(16 + titleW + 32, 15, 16 + titleW + 35, 17)
-      doc.line(16 + titleW + 32, 19, 16 + titleW + 35, 17)
+      doc.setLineWidth(0.7)
+      const arrowX = 16 + titleW + 8
+      doc.line(arrowX, 19, arrowX + 30, 19)
+      doc.line(arrowX + 27, 16.5, arrowX + 30, 19)
+      doc.line(arrowX + 27, 21.5, arrowX + 30, 19)
 
-      // === Левая часть: Базовый пакет услуг ===
-      const boxLeft = 16, boxTop = 28, boxW = 195, featBoxH = 100
-
-      // Рамка базового пакета
-      doc.setDrawColor(190, 200, 215)
-      doc.setLineWidth(0.3)
-      doc.roundedRect(boxLeft, boxTop, boxW, featBoxH, 3, 3, 'S')
-
-      // Заголовок базового пакета (оранжевый бейдж)
-      doc.setFillColor(...brandOrange)
-      doc.roundedRect(boxLeft + 6, boxTop + 4, 4, 4, 1, 1, 'F')
-      doc.setFont('Lato', 'bold')
-      doc.setFontSize(11)
-      doc.setTextColor(...darkText)
-      doc.text('Базовый пакет услуг', boxLeft + 14, boxTop + 8)
-
-      // Фичи — две колонки
-      const features = baseFeatures[licType] || baseFeatures.kiosk
-      const colW = 90, col1X = boxLeft + 10, col2X = boxLeft + 105
-      let fy = boxTop + 17
-
-      features.forEach((feat, i) => {
-        const x = i < Math.ceil(features.length / 2) ? col1X : col2X
-        const yOffset = i < Math.ceil(features.length / 2) ? i : i - Math.ceil(features.length / 2)
-        const y = fy + yOffset * 9
-
-        // Оранжевая галочка
-        doc.setFillColor(...brandOrange)
-        doc.roundedRect(x - 4, y - 3, 3.5, 3.5, 0.8, 0.8, 'F')
-        doc.setFont('Lato', 'bold')
-        doc.setFontSize(6)
-        doc.setTextColor(255, 255, 255)
-        doc.text('\u2713', x - 3.3, y - 0.3)
-
+      // Подзаголовок справа
+      if (subtitle) {
         doc.setFont('Lato', 'normal')
         doc.setFontSize(7.5)
-        doc.setTextColor(...darkText)
-        doc.text(feat, x + 2, y, { maxWidth: colW - 6 })
+        doc.setTextColor(...grayText)
+        doc.text(subtitle, slideW - 16, 16, { align: 'right', maxWidth: 110 })
+      }
+
+      // === ЛЕВАЯ ЧАСТЬ ===
+      const boxL = 14, boxW = 200
+
+      // --- Базовый пакет услуг (ОРАНЖЕВЫЙ фон) ---
+      const featTop = 32, featH = 90
+      doc.setFillColor(255, 120, 0)
+      doc.roundedRect(boxL, featTop, boxW, featH, 4, 4, 'F')
+
+      // Иконка-галочка в квадрате + заголовок
+      doc.setFillColor(255, 255, 255)
+      doc.roundedRect(boxL + 8, featTop + 6, 5, 5, 1, 1, 'F')
+      doc.setFont('Lato', 'bold')
+      doc.setFontSize(7)
+      doc.setTextColor(255, 120, 0)
+      doc.text('\u2713', boxL + 9.2, featTop + 10)
+      doc.setFont('Lato', 'bold')
+      doc.setFontSize(12)
+      doc.setTextColor(255, 255, 255)
+      doc.text('Базовый пакет услуг', boxL + 17, featTop + 11)
+
+      // Фичи в 2 колонки (белый текст на оранжевом)
+      const features = baseFeatures[licType] || baseFeatures.kiosk
+      const half = Math.ceil(features.length / 2)
+      const col1X = boxL + 12, col2X = boxL + 108
+      const featStartY = featTop + 22
+
+      features.forEach((feat, i) => {
+        const isLeft = i < half
+        const x = isLeft ? col1X : col2X
+        const row = isLeft ? i : i - half
+        const y = featStartY + row * 11
+
+        // Белая галочка-квадрат
+        doc.setFillColor(255, 255, 255)
+        doc.roundedRect(x - 5, y - 3.5, 4, 4, 0.8, 0.8, 'F')
+        doc.setFont('Lato', 'bold')
+        doc.setFontSize(6)
+        doc.setTextColor(255, 120, 0)
+        doc.text('\u2713', x - 4, y - 0.5)
+
+        doc.setFont('Lato', 'normal')
+        doc.setFontSize(7)
+        doc.setTextColor(255, 255, 255)
+        doc.text(feat, x + 2, y, { maxWidth: 85 })
       })
 
-      // === Блок «Услуги внедрения» (под базовым пакетом) ===
-      const svcTop = boxTop + featBoxH + 4
-      const svcH = 32
-      doc.setDrawColor(190, 200, 215)
-      doc.roundedRect(boxLeft, svcTop, boxW, svcH, 3, 3, 'S')
+      // --- Услуги внедрения (СЕРЫЙ фон) ---
+      const svcTop = featTop + featH + 4
+      const svcSection = currentKP.sections.find(s => s.title === 'Услуги')
+      const svcItems = svcSection ? svcSection.items : []
+      const svcH = 18 + svcItems.length * 10
 
-      // Заголовок
-      doc.setFillColor(80, 120, 200)
-      doc.roundedRect(boxLeft + 6, svcTop + 4, 4, 4, 1, 1, 'F')
+      doc.setFillColor(160, 165, 180)
+      doc.roundedRect(boxL, svcTop, boxW, svcH, 4, 4, 'F')
+
+      // Иконка + заголовок
+      doc.setFillColor(255, 255, 255)
+      doc.roundedRect(boxL + 8, svcTop + 6, 5, 5, 1, 1, 'F')
       doc.setFont('Lato', 'bold')
-      doc.setFontSize(10)
-      doc.setTextColor(...darkText)
-      doc.text('Услуги внедрения', boxLeft + 14, svcTop + 8)
+      doc.setFontSize(7)
+      doc.setTextColor(160, 165, 180)
+      doc.text('+', boxL + 9.5, svcTop + 10)
+      doc.setFont('Lato', 'bold')
+      doc.setFontSize(11)
+      doc.setTextColor(255, 255, 255)
+      doc.text('Услуги внедрения', boxL + 17, svcTop + 11)
 
       // Строки услуг
-      let svcY = svcTop + 16
-      const svcSection = currentKP.sections.find(s => s.title === 'Услуги')
+      let svcY = svcTop + 20
       if (svcSection) {
         for (const item of svcSection.items) {
           doc.setFont('Lato', 'normal')
           doc.setFontSize(8)
-          doc.setTextColor(...grayText)
-          doc.text(item.name, boxLeft + 10, svcY)
+          doc.setTextColor(240, 240, 245)
+          doc.text(item.name, boxL + 12, svcY)
           doc.setFont('Lato', 'bold')
-          doc.setTextColor(...darkText)
-          doc.text(formatMoney(item.unitPrice) + (item.qty > 1 ? ` \u00D7 ${item.qty}` : ''), boxLeft + boxW - 10, svcY, { align: 'right' })
-          svcY += 7
+          doc.setFontSize(9)
+          doc.setTextColor(255, 255, 255)
+          const priceStr = formatMoney(item.unitPrice) + (item.qty > 1 ? ` \u00D7 ${item.qty}` : '')
+          doc.text(priceStr, boxL + boxW - 12, svcY, { align: 'right' })
+          svcY += 10
         }
-      } else {
-        doc.setFont('Lato', 'normal')
-        doc.setFontSize(8)
-        doc.setTextColor(...grayText)
-        doc.text('Генерация и создание motion-контента за позицию', boxLeft + 10, svcY)
-        doc.setFont('Lato', 'bold')
-        doc.setTextColor(...darkText)
-        doc.text('1 500 \u20BD', boxLeft + boxW - 10, svcY, { align: 'right' })
       }
 
-      // === Правая часть: Инфо-блоки ===
-      const infoX = 220, infoW = 50
+      // === ПРАВАЯ ЧАСТЬ: карточки с ценами ===
+      const cardX = 222, cardW = 104
 
-      // Блок: Кол-во точек / Кол-во устройств
-      const countY = boxTop
+      // --- Кол-во точек / устройств ---
+      const cntY = featTop
+      const cntW = 48
+      // Точки
       doc.setFillColor(255, 255, 255)
-      doc.roundedRect(infoX, countY, infoW, 20, 3, 3, 'F')
-      doc.setDrawColor(190, 200, 215)
-      doc.roundedRect(infoX, countY, infoW, 20, 3, 3, 'S')
+      doc.roundedRect(cardX, cntY, cntW, 22, 3, 3, 'F')
+      doc.setDrawColor(220, 222, 230)
+      doc.setLineWidth(0.2)
+      doc.roundedRect(cardX, cntY, cntW, 22, 3, 3, 'S')
       doc.setFont('Lato', 'normal')
       doc.setFontSize(7)
       doc.setTextColor(...grayText)
-      doc.text('Кол-во', infoX + 5, countY + 6)
-      doc.text('точек', infoX + 5, countY + 10)
+      doc.text('Кол-во', cardX + 6, cntY + 7)
+      doc.text('точек', cardX + 6, cntY + 12)
       doc.setFont('Lato', 'bold')
-      doc.setFontSize(18)
+      doc.setFontSize(22)
       doc.setTextColor(...darkText)
-      doc.text(String(parsed.locations), infoX + 24, countY + 14)
+      doc.text(String(parsed.locations), cardX + 32, cntY + 16)
 
-      // Кол-во устройств (если есть)
+      // Устройства
       if (parsed.devices > 0) {
+        const d2X = cardX + cntW + 4
         doc.setFillColor(255, 255, 255)
-        doc.roundedRect(infoX + infoW + 4, countY, infoW, 20, 3, 3, 'F')
-        doc.setDrawColor(190, 200, 215)
-        doc.roundedRect(infoX + infoW + 4, countY, infoW, 20, 3, 3, 'S')
+        doc.roundedRect(d2X, cntY, cntW + 4, 22, 3, 3, 'F')
+        doc.setDrawColor(220, 222, 230)
+        doc.roundedRect(d2X, cntY, cntW + 4, 22, 3, 3, 'S')
         doc.setFont('Lato', 'normal')
         doc.setFontSize(7)
         doc.setTextColor(...grayText)
-        doc.text('Кол-во', infoX + infoW + 9, countY + 6)
-        doc.text('устройств', infoX + infoW + 9, countY + 10)
+        doc.text('Кол-во', d2X + 6, cntY + 7)
+        doc.text('устройств', d2X + 6, cntY + 12)
         doc.setFont('Lato', 'bold')
-        doc.setFontSize(18)
+        doc.setFontSize(22)
         doc.setTextColor(...darkText)
-        doc.text(String(parsed.devices), infoX + infoW + 28, countY + 14)
+        doc.text(String(parsed.devices), d2X + 36, cntY + 16)
       }
 
-      // Блок: Стоимость внедрения
-      let priceY = countY + 26
+      // --- Стоимость внедрения ---
+      let priceY = cntY + 28
       const implSection = currentKP.sections.find(s => s.title === 'Услуги')
       const implTotal = implSection ? implSection.subtotal : 0
       if (implTotal > 0) {
         doc.setFillColor(255, 255, 255)
-        doc.roundedRect(infoX, priceY, infoW * 2 + 4, 22, 3, 3, 'F')
-        doc.setDrawColor(190, 200, 215)
-        doc.roundedRect(infoX, priceY, infoW * 2 + 4, 22, 3, 3, 'S')
-        // Иконка гаечный ключ
-        doc.setFillColor(...brandOrange)
-        doc.circle(infoX + 8, priceY + 8, 4, 'F')
-        doc.setFont('Lato', 'bold')
-        doc.setFontSize(8)
-        doc.setTextColor(255, 255, 255)
-        doc.text('\u2692', infoX + 6.2, priceY + 9.5)
+        doc.roundedRect(cardX, priceY, cardW, 26, 3, 3, 'F')
+        doc.setDrawColor(220, 222, 230)
+        doc.roundedRect(cardX, priceY, cardW, 26, 3, 3, 'S')
         doc.setFont('Lato', 'normal')
         doc.setFontSize(7)
         doc.setTextColor(...grayText)
-        doc.text('Стоимость внедрения', infoX + 16, priceY + 7)
+        doc.text('Стоимость внедрения', cardX + 8, priceY + 8)
         doc.setFont('Lato', 'bold')
-        doc.setFontSize(16)
+        doc.setFontSize(18)
         doc.setTextColor(...brandOrange)
-        doc.text(formatMoney(implTotal), infoX + 16, priceY + 17)
-        priceY += 28
+        doc.text(formatMoney(implTotal), cardX + 8, priceY + 20)
+        priceY += 32
       }
 
-      // Блок: Стоимость лицензии
+      // --- Стоимость лицензии ---
       const licSection = currentKP.sections.find(s => s.title === 'Лицензии и подписки')
       if (licSection && licSection.subtotal > 0) {
+        const licH = currentKP.monthlyTotal > 0 ? 30 : 26
         doc.setFillColor(255, 255, 255)
-        doc.roundedRect(infoX, priceY, infoW * 2 + 4, 28, 3, 3, 'F')
-        doc.setDrawColor(190, 200, 215)
-        doc.roundedRect(infoX, priceY, infoW * 2 + 4, 28, 3, 3, 'S')
-        // Иконка календарь
-        doc.setFillColor(80, 120, 200)
-        doc.circle(infoX + 8, priceY + 8, 4, 'F')
-        doc.setFont('Lato', 'bold')
-        doc.setFontSize(7)
-        doc.setTextColor(255, 255, 255)
-        doc.text('\u2630', infoX + 6.2, priceY + 9.5)
+        doc.roundedRect(cardX, priceY, cardW, licH, 3, 3, 'F')
+        doc.setDrawColor(220, 222, 230)
+        doc.roundedRect(cardX, priceY, cardW, licH, 3, 3, 'S')
         doc.setFont('Lato', 'normal')
         doc.setFontSize(7)
         doc.setTextColor(...grayText)
-        doc.text('Стоимость лицензии', infoX + 16, priceY + 7)
+        doc.text('Стоимость лицензии', cardX + 8, priceY + 8)
         doc.setFont('Lato', 'bold')
-        doc.setFontSize(16)
+        doc.setFontSize(18)
         doc.setTextColor(...brandOrange)
-        doc.text(formatMoney(licSection.subtotal), infoX + 16, priceY + 17)
+        doc.text(formatMoney(licSection.subtotal), cardX + 8, priceY + 20)
         if (currentKP.monthlyTotal > 0) {
           doc.setFont('Lato', 'normal')
-          doc.setFontSize(8)
+          doc.setFontSize(7)
           doc.setTextColor(...grayText)
-          doc.text(`(${formatMoney(currentKP.monthlyTotal)}/мес)`, infoX + 16, priceY + 23)
+          doc.text(`(${formatMoney(currentKP.monthlyTotal)} \u20BD/мес)`, cardX + 8, priceY + 26)
         }
-        priceY += 34
+        priceY += licH + 6
       }
 
-      // Блок: Стоимость оборудования
+      // --- Стоимость оборудования ---
       const equipSection = currentKP.sections.find(s => s.title === 'Оборудование')
       if (equipSection && equipSection.subtotal > 0) {
         doc.setFillColor(255, 255, 255)
-        doc.roundedRect(infoX, priceY, infoW * 2 + 4, 22, 3, 3, 'F')
-        doc.setDrawColor(190, 200, 215)
-        doc.roundedRect(infoX, priceY, infoW * 2 + 4, 22, 3, 3, 'S')
-        // Иконка
-        doc.setFillColor(80, 180, 120)
-        doc.circle(infoX + 8, priceY + 8, 4, 'F')
-        doc.setFont('Lato', 'bold')
-        doc.setFontSize(7)
-        doc.setTextColor(255, 255, 255)
-        doc.text('\u2699', infoX + 6, priceY + 9.5)
+        doc.roundedRect(cardX, priceY, cardW, 26, 3, 3, 'F')
+        doc.setDrawColor(220, 222, 230)
+        doc.roundedRect(cardX, priceY, cardW, 26, 3, 3, 'S')
         doc.setFont('Lato', 'normal')
         doc.setFontSize(7)
         doc.setTextColor(...grayText)
-        doc.text('Стоимость оборудования', infoX + 16, priceY + 7)
+        doc.text('Стоимость оборудования', cardX + 8, priceY + 8)
         doc.setFont('Lato', 'bold')
-        doc.setFontSize(16)
+        doc.setFontSize(18)
         doc.setTextColor(...brandOrange)
-        doc.text(formatMoney(equipSection.subtotal), infoX + 16, priceY + 17)
+        doc.text(formatMoney(equipSection.subtotal), cardX + 8, priceY + 20)
       }
 
       } // end if (!isInno) / else
