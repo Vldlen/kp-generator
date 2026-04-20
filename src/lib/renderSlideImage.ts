@@ -258,7 +258,7 @@ function renderInnoSlide(ctx: CanvasRenderingContext2D, kp: KPResult, parsed: Pa
       ctx.textAlign = 'right'
       const priceStr = item.qty > 1
         ? `${fmt(item.unitPrice)} \u00D7 ${item.qty}`
-        : `${fmt(item.total)} \u20BD`
+        : fmt(item.total)
       ctx.fillText(priceStr, pad + leftW - 40, sy)
       ctx.textAlign = 'left'
 
@@ -340,7 +340,7 @@ function renderInnoSlide(ctx: CanvasRenderingContext2D, kp: KPResult, parsed: Pa
     renderPriceCard(
       'Стоимость лицензии',
       licSection.subtotal,
-      kp.monthlyTotal > 0 ? `(${fmt(kp.monthlyTotal)}  \u20BD/мес)` : undefined
+      kp.monthlyTotal > 0 ? `(${fmt(kp.monthlyTotal)}/мес)` : undefined
     )
   }
 
@@ -401,8 +401,12 @@ function renderBondaSlide(ctx: CanvasRenderingContext2D, kp: KPResult, parsed: P
   const cardTop = sepY + 36
   const itogoBarH = 64
   const monthlyH = kp.monthlyTotal > 0 ? 36 : 0
-  const cardBottom = H - pad - itogoBarH - monthlyH - 24
-  const cardH = cardBottom - cardTop
+  const maxCardBottom = H - pad - itogoBarH - monthlyH - 24
+  // Calculate card height based on content: header(68) + items(36 each) + subtotal(52) + padding(28)
+  const maxItems = Math.max(...sections.map(s => s.items.length))
+  const contentCardH = 68 + maxItems * 36 + 52 + 28
+  const cardH = Math.min(contentCardH, maxCardBottom - cardTop)
+  const cardBottom = cardTop + cardH
 
   sections.forEach((section, idx) => {
     const cx = pad + idx * (cardW + cardGap)
@@ -444,7 +448,7 @@ function renderBondaSlide(ctx: CanvasRenderingContext2D, kp: KPResult, parsed: P
       ctx.textAlign = 'right'
       const pStr = item.qty > 1
         ? `${fmt(item.unitPrice)} \u00D7 ${item.qty}`
-        : `${fmt(item.total)} \u20BD`
+        : fmt(item.total)
       ctx.fillText(pStr, cx + cardW - 28, iy)
       ctx.textAlign = 'left'
 
@@ -476,7 +480,7 @@ function renderBondaSlide(ctx: CanvasRenderingContext2D, kp: KPResult, parsed: P
     ctx.fillStyle = bondaRed
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
-    ctx.fillText(`${fmt(section.subtotal)} \u20BD/мес`, cx + cardW / 2, subY + 26)
+    ctx.fillText(`${fmt(section.subtotal)}/мес`, cx + cardW / 2, subY + 26)
     ctx.textAlign = 'left'
   })
 
@@ -487,7 +491,7 @@ function renderBondaSlide(ctx: CanvasRenderingContext2D, kp: KPResult, parsed: P
   ctx.fillStyle = 'white'
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
-  ctx.fillText(`\u0418\u0422\u041E\u0413\u041E: ${fmt(kp.grandTotal)} \u20BD`, W / 2, itogoY + itogoBarH / 2)
+  ctx.fillText(`ИТОГО: ${fmt(kp.grandTotal)}`, W / 2, itogoY + itogoBarH / 2)
   ctx.textAlign = 'left'
 
   // Monthly
@@ -495,7 +499,7 @@ function renderBondaSlide(ctx: CanvasRenderingContext2D, kp: KPResult, parsed: P
     ctx.font = '400 17px Inter, -apple-system, sans-serif'
     ctx.fillStyle = '#787D87'
     ctx.textAlign = 'center'
-    ctx.fillText(`Ежемесячно: ${fmt(kp.monthlyTotal)} \u20BD`, W / 2, itogoY + itogoBarH + 22)
+    ctx.fillText(`Ежемесячно: ${fmt(kp.monthlyTotal)}`, W / 2, itogoY + itogoBarH + 22)
     ctx.textAlign = 'left'
   }
 }
