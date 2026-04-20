@@ -148,11 +148,11 @@ async function renderBondaFindirSlide(ctx: CanvasRenderingContext2D, kp: KPResul
     { x: 1210, y: 840, w: 558, h: 110 },
   ]
 
-  // 3. Затемняем невыбранные карточки белым оверлеем
+  // 3. Слегка приглушаем невыбранные карточки (очень лёгкий оверлей)
   for (let i = 0; i < 3; i++) {
     if (i !== selectedIdx) {
       const c = cards[i]
-      fillRoundRect(ctx, c.x, c.y, c.w, c.h, 16, 'rgba(255, 255, 255, 0.55)')
+      fillRoundRect(ctx, c.x, c.y, c.w, c.h, 16, 'rgba(255, 255, 255, 0.3)')
     }
   }
 
@@ -172,9 +172,9 @@ async function renderBondaFindirSlide(ctx: CanvasRenderingContext2D, kp: KPResul
   ctx.restore()
 
   // 5. Обновляем заголовок
-  // Закрашиваем область заголовка (оставляем bondabiz лого справа)
+  // Закрашиваем только область текста заголовка (узкая полоса, не трогаем полоски)
   ctx.fillStyle = '#FFFFFF'
-  ctx.fillRect(36, 16, W * 0.77, 118)
+  ctx.fillRect(36, 20, 820, 110)
 
   const pad = 52
   // "Тариф*" — жирный, как в оригинале
