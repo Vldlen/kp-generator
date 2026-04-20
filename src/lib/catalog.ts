@@ -1,0 +1,569 @@
+// ============================================================
+// INNO Clouds — Полный каталог продуктов, услуг и оборудования
+// ============================================================
+
+// ---------- Типы ----------
+
+export type ProductCategory = 'equipment' | 'tablet' | 'mount' | 'peripheral' | 'license' | 'service'
+export type Company = 'inno' | 'bonda'
+export type SubscriptionPeriod = 'month' | 'quarter' | 'half_year' | 'year'
+
+export interface Product {
+  id: string
+  name: string
+  category: ProductCategory
+  company: Company
+  description: string
+  costPrice: number       // закупочная
+  sellPrice: number       // продажная
+  margin: number          // маржа %
+  warranty?: string       // гарантия
+  specs?: string          // характеристики
+  unit?: string           // единица (шт, мес, локация)
+}
+
+export interface LicenseTier {
+  id: string
+  name: string
+  company: Company
+  description: string
+  pricing: Record<string, number>  // ключ = диапазон, значение = цена/мес
+  period: SubscriptionPeriod
+  features: string[]
+}
+
+export interface ServiceItem {
+  id: string
+  name: string
+  company: Company
+  description: string
+  pricePerUnit: number
+  unit: string  // "устройство", "локация", "позиция меню"
+  volumeDiscount?: { minQty: number; discount: number }[]
+}
+
+// ---------- POS-оборудование (моноблоки) ----------
+
+export const posEquipment: Product[] = [
+  {
+    id: 'pos-atlas-15',
+    name: 'POScenter Atlas 15"',
+    category: 'equipment',
+    company: 'inno',
+    description: '15" PCAP тачскрин, Intel J4125, 8GB RAM, 128GB SSD, MSR',
+    costPrice: 29900,
+    sellPrice: 39400,
+    margin: 24,
+    warranty: '12 месяцев',
+    specs: '15" PCAP, Intel Celeron J4125, 8GB RAM, 128GB SSD, MSR, подставка S-90',
+  },
+  {
+    id: 'pos-atlas2-15',
+    name: 'POScenter Atlas-2 15"',
+    category: 'equipment',
+    company: 'inno',
+    description: '15" PCAP тачскрин, Intel N5095, 8GB RAM, 128GB SSD, MSR',
+    costPrice: 30900,
+    sellPrice: 45800,
+    margin: 32,
+    warranty: '12 месяцев',
+    specs: '15" PCAP, Intel Pentium N5095, 8GB RAM, 128GB SSD, MSR',
+  },
+  {
+    id: 'pos-atlas-pro',
+    name: 'POScenter Atlas Pro 15"',
+    category: 'equipment',
+    company: 'inno',
+    description: '15" PCAP тачскрин, Intel N97, 8GB RAM, 128GB SSD, MSR',
+    costPrice: 38900,
+    sellPrice: 51800,
+    margin: 25,
+    warranty: '12 месяцев',
+    specs: '15" PCAP, Intel Core N97, 8GB RAM, 128GB SSD, MSR, подставка V1',
+  },
+  {
+    id: 'pos-pos101-pro',
+    name: 'POScenter POS101 Pro 15"',
+    category: 'equipment',
+    company: 'inno',
+    description: '15" PCAP тачскрин, Intel N100, 8GB RAM, 128GB SSD, MSR',
+    costPrice: 47400,
+    sellPrice: 68700,
+    margin: 31,
+    warranty: '12 месяцев',
+    specs: '15" PCAP, Intel Core N100, 8GB RAM, 128GB SSD, MSR',
+  },
+  {
+    id: 'pos-sam4s-jupiter',
+    name: 'Sam4s Jupiter (Forza) 15"',
+    category: 'equipment',
+    company: 'inno',
+    description: '15" PCT тачскрин, Intel J6412, 4GB RAM, 120GB SSD, MSR',
+    costPrice: 52000,
+    sellPrice: 69100,
+    margin: 25,
+    warranty: '3 года',
+    specs: '15" PCT, Intel J6412, 4GB RAM (апгрейд 8GB +3000₽), SSD 120GB, MSR',
+  },
+  {
+    id: 'pos-sam4s-jupiter-i3',
+    name: 'Sam4s Jupiter i3 15"',
+    category: 'equipment',
+    company: 'inno',
+    description: '15" PCT тачскрин, Intel i3-1115G4, 8GB RAM, 120GB SSD, MSR',
+    costPrice: 59000,
+    sellPrice: 78000,
+    margin: 24,
+    warranty: '3 года',
+    specs: '15" PCT, Intel Core i3-1115G4, 8GB RAM, SSD 120GB, MSR',
+  },
+]
+
+// ---------- Планшеты ----------
+
+export const tablets: Product[] = [
+  {
+    id: 'tab-oneplus-pad3',
+    name: 'OnePlus Pad 3',
+    category: 'tablet',
+    company: 'inno',
+    description: '13.2" AMOLED, флагманский планшет для киосков',
+    costPrice: 37500,
+    sellPrice: 65000,
+    margin: 36.5,
+    specs: '13.2" AMOLED, Snapdragon',
+  },
+  {
+    id: 'tab-oneplus-padgo2',
+    name: 'OnePlus Pad Go 2',
+    category: 'tablet',
+    company: 'inno',
+    description: '12.1" LCD, оптимальное соотношение цена/качество',
+    costPrice: 21500,
+    sellPrice: 35000,
+    margin: 32.4,
+    specs: '12.1" LCD',
+  },
+  {
+    id: 'tab-honor-pad10',
+    name: 'Honor Pad 10',
+    category: 'tablet',
+    company: 'inno',
+    description: '12.1" LCD, бюджетный вариант',
+    costPrice: 21400,
+    sellPrice: 34000,
+    margin: 30.8,
+    specs: '12.1" LCD',
+  },
+  {
+    id: 'tab-redmi-pad2pro',
+    name: 'Redmi Pad 2 Pro',
+    category: 'tablet',
+    company: 'inno',
+    description: '12.1" LCD, Xiaomi экосистема',
+    costPrice: 19300,
+    sellPrice: 31000,
+    margin: 31.5,
+    specs: '12.1" LCD',
+  },
+  {
+    id: 'tab-poco-pad-m1',
+    name: 'Poco Pad M1',
+    category: 'tablet',
+    company: 'inno',
+    description: '12.1" LCD, самый бюджетный',
+    costPrice: 18500,
+    sellPrice: 30000,
+    margin: 32.2,
+    specs: '12.1" LCD',
+  },
+]
+
+// ---------- Крепления и кронштейны ----------
+
+export const mounts: Product[] = [
+  {
+    id: 'mount-onkron-adapter',
+    name: 'ONKRON адаптер для планшета',
+    category: 'mount',
+    company: 'inno',
+    description: 'Универсальный адаптер для крепления планшета',
+    costPrice: 900,
+    sellPrice: 2000,
+    margin: 50.5,
+  },
+  {
+    id: 'mount-onkron-wall-fixed',
+    name: 'ONKRON настенный кронштейн (фикс.)',
+    category: 'mount',
+    company: 'inno',
+    description: 'Фиксированное настенное крепление',
+    costPrice: 3200,
+    sellPrice: 5300,
+    margin: 33.6,
+  },
+  {
+    id: 'mount-onkron-wall-g150',
+    name: 'ONKRON настенный кронштейн G150',
+    category: 'mount',
+    company: 'inno',
+    description: 'Подвижное настенное крепление',
+    costPrice: 4200,
+    sellPrice: 7200,
+    margin: 35.8,
+  },
+  {
+    id: 'mount-onkron-desk-g80',
+    name: 'ONKRON настольный кронштейн G80',
+    category: 'mount',
+    company: 'inno',
+    description: 'Настольная подставка с регулировкой',
+    costPrice: 3500,
+    sellPrice: 6200,
+    margin: 37.9,
+  },
+  {
+    id: 'mount-masterhold-desk',
+    name: 'MasterHold настольный кронштейн',
+    category: 'mount',
+    company: 'inno',
+    description: 'Профессиональная настольная подставка',
+    costPrice: 6500,
+    sellPrice: 11900,
+    margin: 39.9,
+  },
+  {
+    id: 'mount-masterhold-kiosk',
+    name: 'MasterHold стойка-киоск',
+    category: 'mount',
+    company: 'inno',
+    description: 'Напольная стойка для киоска самообслуживания',
+    costPrice: 18178,
+    sellPrice: 28500,
+    margin: 29.8,
+  },
+  {
+    id: 'mount-pinpad-bracket',
+    name: 'Крепление для пинпада',
+    category: 'mount',
+    company: 'inno',
+    description: 'Стальной кронштейн для терминала оплаты',
+    costPrice: 200,
+    sellPrice: 2500,
+    margin: 91.2,
+  },
+]
+
+// ---------- Периферия ----------
+
+export const peripherals: Product[] = [
+  {
+    id: 'peri-charger-65w',
+    name: 'Зарядное устройство 65W (Baseus GaN5)',
+    category: 'peripheral',
+    company: 'inno',
+    description: 'Быстрая зарядка GaN для планшета',
+    costPrice: 2500,
+    sellPrice: 3500,
+    margin: 21.4,
+  },
+  {
+    id: 'peri-cable-typec-2m',
+    name: 'Кабель Type-C 240W 2м',
+    category: 'peripheral',
+    company: 'inno',
+    description: 'Усиленный USB-C кабель',
+    costPrice: 690,
+    sellPrice: 1100,
+    margin: 31,
+  },
+  {
+    id: 'peri-angle-adapter',
+    name: 'USB-C угловой адаптер',
+    category: 'peripheral',
+    company: 'inno',
+    description: 'Угловой переходник для аккуратной укладки кабеля',
+    costPrice: 450,
+    sellPrice: 700,
+    margin: 29.3,
+  },
+  {
+    id: 'peri-hub-lan',
+    name: 'Мультипорт-хаб с LAN (UGREEN)',
+    category: 'peripheral',
+    company: 'inno',
+    description: 'USB-C хаб с Ethernet для стабильного интернета',
+    costPrice: 2200,
+    sellPrice: 3900,
+    margin: 37.9,
+  },
+  {
+    id: 'peri-fiscal',
+    name: 'Фискальный регистратор',
+    category: 'peripheral',
+    company: 'inno',
+    description: 'ККТ для печати чеков и передачи данных в ФНС',
+    costPrice: 15000,
+    sellPrice: 22000,
+    margin: 31.8,
+  },
+]
+
+// ---------- Лицензии ИННО ----------
+
+export const innoLicenses: LicenseTier[] = [
+  {
+    id: 'lic-inno-kiosk',
+    name: 'inno Clouds Kiosk',
+    company: 'inno',
+    description: 'Лицензия на киоск самообслуживания',
+    pricing: {
+      '1-10': 10000,
+      '11-40': 9000,   // скидка 10%
+      '41-99': 8000,   // скидка 20%
+      '100+': 7000,    // скидка 30%
+    },
+    period: 'month',
+    features: [
+      'Киоск самообслуживания',
+      'Интеграция с iiko',
+      'Облачное управление меню',
+      'Аналитика продаж',
+      'Удалённое управление',
+    ],
+  },
+  {
+    id: 'lic-inno-ff-mini',
+    name: 'inno FF Mini',
+    company: 'inno',
+    description: 'Мини-франшиза innoClouds',
+    pricing: {
+      '1-10': 10000,
+      '11-40': 9000,
+      '41-99': 8000,
+      '100+': 7000,
+    },
+    period: 'month',
+    features: [
+      'Все возможности Kiosk',
+      'Франчайзинговая модель',
+      'Комиссия дилера 25%',
+    ],
+  },
+]
+
+// ---------- ФинДир (БОНДА) тарифы ----------
+
+export interface FindirTier {
+  name: string
+  pricing: Record<string, number> // ключ = диапазон локаций
+  features: string[]
+}
+
+export const findirTariffs: FindirTier[] = [
+  {
+    name: 'Старт',
+    pricing: {
+      '1': 50000,
+      '2': 90000,
+      '3-5': 145000,
+      '6-10': 170000,
+      '11-15': 220000,
+      '16-20': 270000,
+    },
+    features: [
+      'Персональный дашборд владельца',
+      'Автоматизация складского учёта',
+      'Финансовый учёт',
+      'Еженедельный план-факт',
+    ],
+  },
+  {
+    name: 'Про',
+    pricing: {
+      '1': 65000,
+      '2': 100000,
+      '3-5': 175000,
+      '6-10': 200000,
+      '11-15': 250000,
+      '16-20': 310000,
+    },
+    features: [
+      'Все возможности тарифа «Старт»',
+      'Бюджетирование на год',
+      'Ежемесячный P&L и cash flow',
+      'План-факт анализ в iiko',
+      'Платёжный календарь',
+    ],
+  },
+  {
+    name: 'Ультра',
+    pricing: {
+      '1': 85000,
+      '2': 120000,
+      '3-5': 210000,
+      '6-10': 230000,
+      '11-15': 280000,
+      '16-20': 350000,
+    },
+    features: [
+      'Все возможности тарифа «Про»',
+      'Управленческий баланс',
+      'Маржинальный анализ портфеля',
+      'Автоматизация ФОТ и графиков',
+      'Анализ ценообразования',
+      'Еженедельный KPI-анализ',
+      'Дивидендная политика',
+    ],
+  },
+]
+
+// ---------- Услуги ----------
+
+export const services: ServiceItem[] = [
+  {
+    id: 'svc-inno-impl',
+    name: 'Внедрение innoClouds',
+    company: 'inno',
+    description: 'Настройка и интеграция системы на локации',
+    pricePerUnit: 15000,
+    unit: 'локация',
+    volumeDiscount: [
+      { minQty: 10, discount: 10 },
+      { minQty: 20, discount: 20 },
+    ],
+  },
+  {
+    id: 'svc-inno-content',
+    name: 'Генерация контента',
+    company: 'inno',
+    description: 'Дизайн карточек товаров и промо-материалов',
+    pricePerUnit: 800,
+    unit: 'позиция',
+    volumeDiscount: [
+      { minQty: 50, discount: 10 },
+      { minQty: 100, discount: 20 },
+    ],
+  },
+  {
+    id: 'svc-bonda-bi',
+    name: 'BONDA BI',
+    company: 'bonda',
+    description: 'Бизнес-аналитика для ресторанов',
+    pricePerUnit: 30000,
+    unit: 'локация/мес',
+  },
+]
+
+// ---------- Готовые комплекты (шаблоны) ----------
+
+export interface KioskKit {
+  id: string
+  name: string
+  description: string
+  items: { productId: string; qty: number }[]
+  priceTotal: number
+}
+
+export const kioskKits: KioskKit[] = [
+  {
+    id: 'kit-basic',
+    name: 'Базовый киоск',
+    description: '1 планшет + настольный кронштейн + зарядка + кабель',
+    items: [
+      { productId: 'tab-oneplus-padgo2', qty: 1 },
+      { productId: 'mount-onkron-desk-g80', qty: 1 },
+      { productId: 'peri-charger-65w', qty: 1 },
+      { productId: 'peri-cable-typec-2m', qty: 1 },
+    ],
+    priceTotal: 45800,
+  },
+  {
+    id: 'kit-wall',
+    name: 'Настенный киоск',
+    description: '1 планшет + настенный кронштейн + зарядка + кабель + хаб',
+    items: [
+      { productId: 'tab-oneplus-padgo2', qty: 1 },
+      { productId: 'mount-onkron-wall-g150', qty: 1 },
+      { productId: 'mount-onkron-adapter', qty: 1 },
+      { productId: 'peri-charger-65w', qty: 1 },
+      { productId: 'peri-cable-typec-2m', qty: 1 },
+      { productId: 'peri-hub-lan', qty: 1 },
+    ],
+    priceTotal: 52900,
+  },
+  {
+    id: 'kit-floor',
+    name: 'Напольный киоск',
+    description: '1 планшет + напольная стойка + зарядка + кабель + пинпад',
+    items: [
+      { productId: 'tab-oneplus-padgo2', qty: 1 },
+      { productId: 'mount-masterhold-kiosk', qty: 1 },
+      { productId: 'mount-pinpad-bracket', qty: 1 },
+      { productId: 'peri-charger-65w', qty: 1 },
+      { productId: 'peri-cable-typec-2m', qty: 1 },
+    ],
+    priceTotal: 70100,
+  },
+  {
+    id: 'kit-pos',
+    name: 'POS-терминал',
+    description: 'Моноблок POScenter Atlas + фискальный регистратор',
+    items: [
+      { productId: 'pos-atlas-15', qty: 1 },
+      { productId: 'peri-fiscal', qty: 1 },
+    ],
+    priceTotal: 61400,
+  },
+]
+
+// ---------- Скидки за объём лицензий ----------
+
+export function getLicensePrice(basePrice: number, qty: number): number {
+  if (qty >= 100) return basePrice * 0.7
+  if (qty >= 41) return basePrice * 0.8
+  if (qty >= 11) return basePrice * 0.9
+  return basePrice
+}
+
+// ---------- Скидка за период подписки ----------
+
+export const periodMultiplier: Record<SubscriptionPeriod, { months: number; discount: number; label: string }> = {
+  month: { months: 1, discount: 0, label: '1 месяц' },
+  quarter: { months: 3, discount: 5, label: '3 месяца (скидка 5%)' },
+  half_year: { months: 6, discount: 10, label: '6 месяцев (скидка 10%)' },
+  year: { months: 12, discount: 15, label: '12 месяцев (скидка 15%)' },
+}
+
+// ---------- ФинДир: получить цену по тарифу и кол-ву локаций ----------
+
+export function getFindirPrice(tariffName: string, locations: number): number {
+  const tariff = findirTariffs.find(t => t.name === tariffName)
+  if (!tariff) return 0
+  if (locations <= 1) return tariff.pricing['1']
+  if (locations <= 2) return tariff.pricing['2']
+  if (locations <= 5) return tariff.pricing['3-5']
+  if (locations <= 10) return tariff.pricing['6-10']
+  if (locations <= 15) return tariff.pricing['11-15']
+  return tariff.pricing['16-20']
+}
+
+// ---------- Все продукты в одном массиве ----------
+
+export const allProducts: Product[] = [
+  ...posEquipment,
+  ...tablets,
+  ...mounts,
+  ...peripherals,
+]
+
+export function getProductById(id: string): Product | undefined {
+  return allProducts.find(p => p.id === id)
+}
+
+// ---------- Условия оплаты ----------
+
+export const paymentTerms = {
+  prepay100: { label: '100% предоплата', tranches: [1.0] },
+  installment3: { label: 'Рассрочка 3 мес (60/20/20)', tranches: [0.6, 0.2, 0.2] },
+}
