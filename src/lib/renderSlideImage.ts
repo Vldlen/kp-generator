@@ -288,12 +288,11 @@ async function renderBondaSlide(ctx: CanvasRenderingContext2D, kp: KPResult, par
 }
 
 // ================================================================
-//  INNO slide — стиль inno_product.jpg / inno_multiformat.jpg
+//  INNO slide — фон inno_product.jpg + прозрачная панель с ценами
 // ================================================================
-function renderInnoSlide(ctx: CanvasRenderingContext2D, kp: KPResult, parsed: ParsedRequest) {
+async function renderInnoSlide(ctx: CanvasRenderingContext2D, kp: KPResult, parsed: ParsedRequest) {
   const licType = parsed.license_type || 'kiosk'
   const title = licenseSlideTitle[licType] || 'Inno Clouds'
-  const subtitle = licenseSlideSubtitle[licType] || ''
   const features = baseFeatures[licType] || baseFeatures.kiosk
 
   const svcSection = kp.sections.find(s => s.title === 'Услуги')
@@ -303,208 +302,104 @@ function renderInnoSlide(ctx: CanvasRenderingContext2D, kp: KPResult, parsed: Pa
   const DARK = '#3A3F4B'
   const ORANGE = '#FF6B00'
   const GRAY = '#8A8F9E'
-  const BG = '#E8EAF0'
-  const CARD_BG = '#F0F1F5'
-  const CARD_BORDER = '#C8CCDA'
 
-  ctx.fillStyle = BG
-  ctx.fillRect(0, 0, W, H)
+  // 1. Рисуем inno_product.jpg как фон
+  const templateImg = await loadImage('/slides/inno_product.jpg')
+  ctx.drawImage(templateImg, 0, 0, W, H)
 
-  const pad = 72
-
-  // INNO. logo
-  ctx.font = '900 32px Inter, -apple-system, sans-serif'
-  ctx.fillStyle = DARK
-  ctx.textBaseline = 'top'
-  ctx.fillText('INNO', pad, 36)
-  const innoW = ctx.measureText('INNO').width
-  ctx.fillStyle = ORANGE
-  ctx.fillText('.', pad + innoW, 36)
-
-  // Title
-  ctx.font = '900 48px Inter, -apple-system, sans-serif'
-  ctx.fillStyle = DARK
-  ctx.fillText(title, pad, 84)
-
-  // Subtitle
-  if (subtitle) {
-    ctx.font = '400 18px Inter, -apple-system, sans-serif'
-    ctx.fillStyle = GRAY
-    wrapText(ctx, subtitle, pad, 148, W * 0.5, 26)
-  }
-
-  // Client info
-  ctx.textAlign = 'right'
-  ctx.font = '400 20px Inter, -apple-system, sans-serif'
-  ctx.fillStyle = GRAY
-  ctx.fillText(`${kp.clientName}  •  ${parsed.locations} точ.`, W - pad, 44)
-  ctx.textAlign = 'left'
-
-  const rightColW = 420
-  const leftW = W - pad * 2 - rightColW - 40
-  const contentTop = 200
-
-  // Features card
-  const hasSvc = svcSection && svcSection.items.length > 0
-  const featCardH = hasSvc ? H - contentTop - 220 : H - contentTop - 60
-
-  fillRoundRect(ctx, pad, contentTop, leftW, featCardH, 20, CARD_BG, {
-    color: 'rgba(0,0,0,0.04)', blur: 12, y: 2
-  })
-  strokeRoundRect(ctx, pad, contentTop, leftW, featCardH, 20, CARD_BORDER, 1.5)
-
-  ctx.save()
-  roundRect(ctx, pad, contentTop, leftW, 6, 20)
-  ctx.clip()
-  ctx.fillStyle = ORANGE
-  ctx.fillRect(pad, contentTop, leftW, 6)
-  ctx.restore()
-
-  ctx.font = '800 24px Inter, -apple-system, sans-serif'
-  ctx.fillStyle = DARK
-  ctx.textBaseline = 'top'
-  ctx.fillText('Базовый пакет услуг', pad + 32, contentTop + 24)
-
-  const half = Math.ceil(features.length / 2)
-  const col1X = pad + 32
-  const col2X = pad + leftW / 2 + 16
-  const featStartY = contentTop + 72
-  const featLineH = Math.min(50, (featCardH - 100) / half)
-
-  features.forEach((feat, i) => {
-    const isLeft = i < half
-    const x = isLeft ? col1X : col2X
-    const row = isLeft ? i : i - half
-    const y = featStartY + row * featLineH
-    drawDot(ctx, x + 6, y + 10, 5, ORANGE)
-    ctx.font = '400 16px Inter, -apple-system, sans-serif'
-    ctx.fillStyle = DARK
-    ctx.textBaseline = 'top'
-    wrapText(ctx, feat, x + 22, y + 2, leftW / 2 - 80, 21)
+  // 2. Полупрозрачная панель на левой половине для контента
+  const panelW = W * 0.52
+  const panelH = H - 40
+  fillRoundRect(ctx, 20, 20, panelW, panelH, 24, 'rgba(255, 255, 255, 0.88)', {
+    color: 'rgba(0,0,0,0.08)', blur: 20, y: 4
   })
 
-  // Services card
-  if (hasSvc) {
-    const svcTop = contentTop + featCardH + 16
-    const svcH = H - svcTop - 60
+  const pad = 52
+  const contentTop = 44
 
-    fillRoundRect(ctx, pad, svcTop, leftW, svcH, 20, CARD_BG, {
-      color: 'rgba(0,0,0,0.04)', blur: 12, y: 2
-    })
-    strokeRoundRect(ctx, pad, svcTop, leftW, svcH, 20, CARD_BORDER, 1.5)
+  // 3. Заголовок
+  ctx.font = '900 42px Inter, -apple-system, sans-serif'
+  ctx.fillStyle = DARK
+  ctx.textBaseline = 'top'
+  ctx.fillText(title, pad, contentTop)
 
-    ctx.save()
-    roundRect(ctx, pad, svcTop, leftW, 6, 20)
-    ctx.clip()
-    ctx.fillStyle = GRAY
-    ctx.fillRect(pad, svcTop, leftW, 6)
-    ctx.restore()
+  // Клиент и локации
+  ctx.font = '400 18px Inter, -apple-system, sans-serif'
+  ctx.fillStyle = GRAY
+  const locWord = parsed.locations === 1 ? 'точка' : parsed.locations < 5 ? 'точки' : 'точек'
+  ctx.fillText(`${kp.clientName}  •  ${parsed.locations} ${locWord}`, pad, contentTop + 52)
 
-    ctx.font = '800 22px Inter, -apple-system, sans-serif'
+  // 4. Фичи — компактный список
+  let fy = contentTop + 96
+  ctx.font = '700 16px Inter, -apple-system, sans-serif'
+  ctx.fillStyle = DARK
+  ctx.fillText('Базовый пакет:', pad, fy)
+  fy += 30
+
+  const maxFeats = Math.min(features.length, 8)
+  for (let i = 0; i < maxFeats; i++) {
+    drawDot(ctx, pad + 8, fy + 8, 4, ORANGE)
+    ctx.font = '400 14px Inter, -apple-system, sans-serif'
     ctx.fillStyle = DARK
     ctx.textBaseline = 'top'
-    ctx.fillText('Услуги внедрения', pad + 32, svcTop + 22)
-
-    let sy = svcTop + 62
-    for (const item of svcSection.items) {
-      if (sy > svcTop + svcH - 20) break
-      drawDot(ctx, pad + 38, sy + 8, 4, GRAY)
-      ctx.font = '400 16px Inter, -apple-system, sans-serif'
-      ctx.fillStyle = DARK
-      ctx.textBaseline = 'top'
-      ctx.fillText(item.name, pad + 52, sy)
-      ctx.font = '700 16px Inter, -apple-system, sans-serif'
-      ctx.textAlign = 'right'
-      ctx.fillText(item.qty > 1 ? `${fmt(item.unitPrice)} × ${item.qty}` : fmt(item.total), pad + leftW - 32, sy)
-      ctx.textAlign = 'left'
-      sy += 36
-    }
+    const nextY = wrapText(ctx, features[i], pad + 22, fy, panelW - 100, 19)
+    fy = Math.max(nextY, fy + 24)
   }
 
-  // Right: Price cards
-  const rightX = W - pad - rightColW
-  let cardY = contentTop
+  // 5. Разделитель
+  fy += 8
+  ctx.strokeStyle = '#D8DBE3'
+  ctx.lineWidth = 1
+  ctx.beginPath()
+  ctx.moveTo(pad, fy)
+  ctx.lineTo(pad + panelW - 80, fy)
+  ctx.stroke()
+  fy += 20
 
-  const hasDevices = parsed.devices > 0
-  const countW = hasDevices ? (rightColW - 16) / 2 : rightColW
-
-  fillRoundRect(ctx, rightX, cardY, countW, 110, 16, CARD_BG)
-  strokeRoundRect(ctx, rightX, cardY, countW, 110, 16, CARD_BORDER, 1.5)
-  ctx.font = '400 15px Inter, -apple-system, sans-serif'
-  ctx.fillStyle = GRAY
-  ctx.textBaseline = 'top'
-  ctx.fillText('Кол-во точек', rightX + 24, cardY + 18)
-  ctx.font = '800 48px Inter, -apple-system, sans-serif'
-  ctx.fillStyle = DARK
-  ctx.textAlign = 'center'
-  ctx.fillText(String(parsed.locations), rightX + countW / 2, cardY + 50)
-  ctx.textAlign = 'left'
-
-  if (hasDevices) {
-    const d2X = rightX + countW + 16
-    fillRoundRect(ctx, d2X, cardY, countW, 110, 16, CARD_BG)
-    strokeRoundRect(ctx, d2X, cardY, countW, 110, 16, CARD_BORDER, 1.5)
+  // 6. Стоимость — блоки
+  const renderPriceLine = (label: string, amount: number, accent: boolean, sub?: string) => {
     ctx.font = '400 15px Inter, -apple-system, sans-serif'
     ctx.fillStyle = GRAY
     ctx.textBaseline = 'top'
-    ctx.fillText('Устройств', d2X + 24, cardY + 18)
-    ctx.font = '800 48px Inter, -apple-system, sans-serif'
-    ctx.fillStyle = DARK
-    ctx.textAlign = 'center'
-    ctx.fillText(String(parsed.devices), d2X + countW / 2, cardY + 50)
-    ctx.textAlign = 'left'
-  }
-
-  cardY += 130
-
-  const renderPriceCard = (label: string, amount: number, accent: boolean, sub?: string) => {
-    const ch = sub ? 140 : 120
-    fillRoundRect(ctx, rightX, cardY, rightColW, ch, 16, CARD_BG)
-    strokeRoundRect(ctx, rightX, cardY, rightColW, ch, 16, CARD_BORDER, 1.5)
-    if (accent) {
-      ctx.save()
-      roundRect(ctx, rightX, cardY, rightColW, 6, 16)
-      ctx.clip()
-      ctx.fillStyle = ORANGE
-      ctx.fillRect(rightX, cardY, rightColW, 6)
-      ctx.restore()
-    }
-    ctx.font = '400 16px Inter, -apple-system, sans-serif'
-    ctx.fillStyle = GRAY
-    ctx.textBaseline = 'top'
-    ctx.fillText(label, rightX + 28, cardY + 22)
-    ctx.font = '800 38px Inter, -apple-system, sans-serif'
+    ctx.fillText(label, pad, fy)
+    fy += 22
+    ctx.font = '800 32px Inter, -apple-system, sans-serif'
     ctx.fillStyle = accent ? ORANGE : DARK
-    ctx.fillText(fmt(amount), rightX + 28, cardY + 48)
+    ctx.fillText(fmt(amount), pad, fy)
     if (sub) {
+      const priceW = ctx.measureText(fmt(amount)).width
       ctx.font = '400 16px Inter, -apple-system, sans-serif'
       ctx.fillStyle = GRAY
-      ctx.fillText(sub, rightX + 28, cardY + 100)
+      ctx.fillText(sub, pad + priceW + 12, fy + 10)
     }
-    cardY += ch + 16
+    fy += 46
   }
 
   if (licSection && licSection.subtotal > 0) {
-    renderPriceCard('Стоимость лицензии', licSection.subtotal, true,
+    renderPriceLine('Стоимость лицензии', licSection.subtotal, true,
       kp.monthlyTotal > 0 ? `(${fmt(kp.monthlyTotal)}/мес)` : undefined)
   }
   if (svcSection && svcSection.subtotal > 0) {
-    renderPriceCard('Стоимость внедрения', svcSection.subtotal, false)
+    renderPriceLine('Стоимость внедрения', svcSection.subtotal, false)
   }
   if (equipSection && equipSection.subtotal > 0) {
-    renderPriceCard('Стоимость оборудования', equipSection.subtotal, false)
+    renderPriceLine('Стоимость оборудования', equipSection.subtotal, false)
   }
 
-  const totalY = Math.max(cardY + 8, H - 100)
-  fillRoundRect(ctx, rightX, totalY, rightColW, 60, 16, ORANGE, {
-    color: 'rgba(255,107,0,0.2)', blur: 16, y: 4
+  // 7. ИТОГО
+  fy += 4
+  const itogoW = panelW - 64
+  const itogoH = 52
+  fillRoundRect(ctx, pad, fy, itogoW, itogoH, 14, ORANGE, {
+    color: 'rgba(255,107,0,0.2)', blur: 12, y: 4
   })
-  ctx.font = '800 28px Inter, -apple-system, sans-serif'
+  ctx.font = '800 24px Inter, -apple-system, sans-serif'
   ctx.fillStyle = 'white'
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
-  ctx.fillText(`ИТОГО: ${fmt(kp.grandTotal)}`, rightX + rightColW / 2, totalY + 30)
+  ctx.fillText(`ИТОГО: ${fmt(kp.grandTotal)}`, pad + itogoW / 2, fy + itogoH / 2)
   ctx.textAlign = 'left'
+  ctx.textBaseline = 'top'
 }
 
 // ================================================================
@@ -524,7 +419,7 @@ export async function renderCommercialSlide(
   ctx.imageSmoothingQuality = 'high'
 
   if (isInno) {
-    renderInnoSlide(ctx, kp, parsed)
+    await renderInnoSlide(ctx, kp, parsed)
   } else {
     await renderBondaSlide(ctx, kp, parsed)
   }
