@@ -315,17 +315,21 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
       const grayText: [number, number, number] = [120, 125, 135]
 
       try {
+        console.log('[KP-PDF] Starting Canvas render, isInno:', isInno)
         const slideImageData = await renderCommercialSlide(currentKP, parsed, isInno)
+        console.log('[KP-PDF] Canvas render OK, image length:', slideImageData.length)
         doc.addImage(slideImageData, 'JPEG', 0, 0, slideW, slideH)
       } catch (err) {
-        console.error('Failed to render commercial slide image:', err)
-        // Фоллбэк: простой текст
+        console.error('[KP-PDF] Canvas render FAILED:', err)
+        // Фоллбэк: заметный текст чтобы точно видно что Canvas упал
         doc.setFillColor(237, 240, 248)
         doc.rect(0, 0, slideW, slideH, 'F')
+        doc.setFillColor(255, 0, 0)
+        doc.rect(0, 0, slideW, 4, 'F')  // красная полоска сверху = маркер фоллбэка
         doc.setFont('Lato', 'bold')
         doc.setFontSize(24)
         doc.setTextColor(...darkText)
-        doc.text('Коммерческое предложение', slideW / 2, slideH / 2, { align: 'center' })
+        doc.text('[FALLBACK] Canvas render failed — check console', slideW / 2, slideH / 2, { align: 'center' })
       }
 
       // === Слайды оборудования (для ИННО) ===
