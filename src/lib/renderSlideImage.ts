@@ -129,10 +129,11 @@ async function renderBondaFindirSlide(ctx: CanvasRenderingContext2D, kp: KPResul
   const selectedIdx = tariffMap[parsed.findir_tariff || 'Старт'] ?? 0
 
   // Позиции карточек (canvas 1920×1080, масштаб из 2000×1126)
+  // Точные координаты получены через PIL-анализ bonda_tariffs_ref.jpg
   const cards = [
-    { x: 46, y: 136, w: 556, h: 870 },
-    { x: 618, y: 136, w: 570, h: 870 },
-    { x: 1204, y: 136, w: 570, h: 870 },
+    { x: 120, y: 95, w: 470, h: 870 },   // Безопасность / Старт
+    { x: 675, y: 95, w: 460, h: 870 },    // Стабильность / Про
+    { x: 1219, y: 95, w: 483, h: 870 },   // Развитие / Ультра
   ]
 
   const sel = cards[selectedIdx]
