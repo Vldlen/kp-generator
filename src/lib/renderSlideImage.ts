@@ -1,11 +1,15 @@
 /**
  * renderSlideImage.ts
  * Рендерит коммерческий слайд через Canvas 2D API → data URL для PDF.
- * Дизайн точно повторяет стиль PPTX-слайдов презентации.
+ *
+ * БОНДА ФинДир: использует bonda_tariffs_ref.jpg как фон-шаблон,
+ * подсвечивает выбранный тариф и накладывает динамические данные.
+ * INNO: рисует слайд в стиле inno_product.jpg.
  */
 import { formatMoney, type KPResult } from './calculator'
 import type { ParsedRequest } from './prompt'
 import { baseFeatures, licenseSlideTitle, licenseSlideSubtitle } from './slides'
+import { getFindirPrice } from './catalog'
 
 const W = 1920
 const H = 1080
@@ -84,7 +88,7 @@ function drawDot(ctx: CanvasRenderingContext2D, x: number, y: number, r: number,
   ctx.fill()
 }
 
-// Декоративные вертикальные полоски (как в БОНДА презентации, справа)
+// Декоративные вертикальные полоски
 function drawStripes(ctx: CanvasRenderingContext2D, startX: number, endX: number, topY: number, bottomY: number) {
   ctx.save()
   ctx.globalAlpha = 0.06
@@ -98,43 +102,166 @@ function drawStripes(ctx: CanvasRenderingContext2D, startX: number, endX: number
   ctx.restore()
 }
 
+// Загрузка изображения
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => resolve(img)
+    img.onerror = () => reject(new Error(`Failed to load: ${src}`))
+    img.src = src
+  })
+}
+
 // ================================================================
-//  БОНДА slide — стиль bonda_tariffs_ref.jpg
+//  БОНДА ФинДир — шаблон bonda_tariffs_ref.jpg
+//  Рисует реальный слайд из презентации с подсветкой выбранного тарифа
 // ================================================================
-function renderBondaSlide(ctx: CanvasRenderingContext2D, kp: KPResult, parsed: ParsedRequest) {
+async function renderBondaFindirSlide(ctx: CanvasRenderingContext2D, kp: KPResult, parsed: ParsedRequest) {
   const RED = '#E63C14'
   const DARK = '#1A1A1F'
   const GRAY = '#6B6E78'
-  const LIGHT_GRAY = '#EAEAEA'
+  const CARD_BG = '#F4F4F3'
 
-  // === WHITE BACKGROUND ===
+  // 1. Загружаем шаблон и рисуем как фон
+  const templateImg = await loadImage('/slides/bonda_tariffs_ref.jpg')
+  ctx.drawImage(templateImg, 0, 0, W, H)
+
+  // 2. Определяем выбранный тариф
+  const tariffNames = ['Старт', 'Про', 'Ультра']
+  const tariffMap: Record<string, number> = { 'Старт': 0, 'Про': 1, 'Ультра': 2 }
+  const selectedIdx = tariffMap[parsed.findir_tariff || 'Старт'] ?? 0
+
+  // Позиции карточек (1920×1080, масштабированы из 2000×1126)
+  // Подогнаны под bonda_tariffs_ref.jpg
+  const cards = [
+    { x: 46, y: 136, w: 556, h: 900 },   // Безопасность / Старт
+    { x: 618, y: 136, w: 570, h: 900 },   // Стабильность / Про
+    { x: 1204, y: 136, w: 570, h: 900 },  // Развитие / Ультра
+  ]
+
+  // Области цен внизу карточек
+  const priceAreas = [
+    { x: 52, y: 930, w: 544, h: 95 },
+    { x: 624, y: 930, w: 558, h: 95 },
+    { x: 1210, y: 930, w: 558, h: 95 },
+  ]
+
+  // 3. Затемняем невыбранные карточки белым оверлеем
+  for (let i = 0; i < 3; i++) {
+    if (i !== selectedIdx) {
+      const c = cards[i]
+      fillRoundRect(ctx, c.x, c.y, c.w, c.h, 16, 'rgba(255, 255, 255, 0.6)')
+    }
+  }
+
+  // 4. Подсвечиваем выбранную карточку
+  const sel = cards[selectedIdx]
+
+  // Glow-эффект
+  ctx.save()
+  ctx.shadowColor = 'rgba(230, 60, 20, 0.35)'
+  ctx.shadowBlur = 28
+  ctx.shadowOffsetX = 0
+  ctx.shadowOffsetY = 0
+  ctx.strokeStyle = RED
+  ctx.lineWidth = 4
+  roundRect(ctx, sel.x - 2, sel.y - 2, sel.w + 4, sel.h + 4, 18)
+  ctx.stroke()
+  ctx.restore()
+
+  // Метка "Ваш тариф" сверху выбранной карточки
+  const badgeText = 'Ваш тариф'
+  ctx.font = '700 18px Inter, -apple-system, sans-serif'
+  const badgeW = ctx.measureText(badgeText).width + 32
+  const badgeH = 32
+  const badgeX = sel.x + sel.w / 2 - badgeW / 2
+  const badgeY = sel.y - badgeH - 6
+  fillRoundRect(ctx, badgeX, badgeY, badgeW, badgeH, 8, RED)
+  ctx.fillStyle = '#FFFFFF'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(badgeText, sel.x + sel.w / 2, badgeY + badgeH / 2)
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'top'
+
+  // 5. Обновляем заголовок
+  // Закрашиваем область заголовка (оставляем bondabiz лого справа)
+  ctx.fillStyle = '#FFFFFF'
+  ctx.fillRect(36, 16, W * 0.77, 118)
+
+  const pad = 52
+  // "Тариф*" — жирный, как в оригинале
+  ctx.font = '900 70px Inter, -apple-system, sans-serif'
+  ctx.fillStyle = DARK
+  ctx.fillText('Тариф*', pad, 36)
+
+  const titleW = ctx.measureText('Тариф*').width
+  const locWord = parsed.locations === 1 ? 'ресторан' : parsed.locations < 5 ? 'ресторана' : 'ресторанов'
+  ctx.font = '400 30px Inter, -apple-system, sans-serif'
+  ctx.fillStyle = GRAY
+  ctx.fillText(`стоимость на ${parsed.locations} ${locWord}`, pad + titleW + 24, 64)
+
+  // Имя клиента
+  ctx.font = '400 20px Inter, -apple-system, sans-serif'
+  ctx.fillStyle = GRAY
+  ctx.fillText(`для ${kp.clientName}`, pad, 112)
+
+  // 6. Если > 1 локации — обновляем цены на всех карточках
+  if (parsed.locations > 1) {
+    for (let i = 0; i < 3; i++) {
+      const pa = priceAreas[i]
+      // Закрашиваем фоном карточки
+      ctx.fillStyle = CARD_BG
+      ctx.fillRect(pa.x + 4, pa.y, pa.w - 8, pa.h)
+
+      // Цена для этого тарифа при текущем кол-ве локаций
+      const price = getFindirPrice(tariffNames[i], parsed.locations)
+      const priceStr = `${fmt(price)}/мес`
+
+      ctx.font = '900 36px Inter, -apple-system, sans-serif'
+      ctx.fillStyle = i === selectedIdx ? DARK : DARK
+      ctx.textBaseline = 'top'
+      ctx.fillText(priceStr, pa.x + 18, pa.y + 28)
+    }
+  }
+
+  // 7. ИТОГО бар внизу (только для выбранного тарифа)
+  const itogoY = H - 50
+  const itogoW = 380
+  const itogoH = 40
+  const itogoX = sel.x + sel.w / 2 - itogoW / 2
+  fillRoundRect(ctx, itogoX, itogoY, itogoW, itogoH, 10, RED)
+  ctx.font = '800 22px Inter, -apple-system, sans-serif'
+  ctx.fillStyle = '#FFFFFF'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(`ИТОГО: ${fmt(kp.grandTotal)}`, itogoX + itogoW / 2, itogoY + itogoH / 2)
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'top'
+}
+
+// ================================================================
+//  БОНДА generic (для bonda_bi и прочих не-ФинДир КП)
+// ================================================================
+function renderBondaGenericSlide(ctx: CanvasRenderingContext2D, kp: KPResult, parsed: ParsedRequest) {
+  const RED = '#E63C14'
+  const DARK = '#1A1A1F'
+  const GRAY = '#6B6E78'
+
   ctx.fillStyle = '#FFFFFF'
   ctx.fillRect(0, 0, W, H)
-
-  // Декоративные полоски справа (как в презентации)
   drawStripes(ctx, W * 0.72, W, 0, H)
 
   const pad = 80
 
-  // === HEADER ===
-  // "Тариф «Старт»" — жирный крупный, как в bonda_tariffs_ref
-  const bondaTitle = parsed.license_type === 'findir'
-    ? `Тариф «${parsed.findir_tariff || 'Старт'}»`
-    : 'Коммерческое предложение'
-
+  // Header
   ctx.font = '900 72px Inter, -apple-system, sans-serif'
   ctx.fillStyle = DARK
   ctx.textBaseline = 'top'
-  ctx.fillText(bondaTitle, pad, 48)
+  ctx.fillText('Коммерческое предложение', pad, 48)
 
-  // "стоимость на X ресторан" — обычный, рядом с заголовком
-  const titleW = ctx.measureText(bondaTitle).width
-  const locWord = parsed.locations === 1 ? 'ресторан' : parsed.locations < 5 ? 'ресторана' : 'ресторанов'
-  ctx.font = '400 28px Inter, -apple-system, sans-serif'
-  ctx.fillStyle = GRAY
-  ctx.fillText(`стоимость на ${parsed.locations} ${locWord}`, pad + titleW + 32, 76)
-
-  // bondabiz logo — top-right, как в презентации
+  // bondabiz logo — top-right
   ctx.textAlign = 'right'
   ctx.textBaseline = 'top'
   ctx.font = '900 40px Inter, -apple-system, sans-serif'
@@ -145,41 +272,31 @@ function renderBondaSlide(ctx: CanvasRenderingContext2D, kp: KPResult, parsed: P
   ctx.fillText('biz', W - pad, 52)
   ctx.textAlign = 'left'
 
-  // Для клиента
   ctx.font = '400 20px Inter, -apple-system, sans-serif'
   ctx.fillStyle = GRAY
   ctx.fillText(kp.clientName, pad, 136)
 
-  // === SECTION CARDS ===
-  // Стиль: как карточки тарифов — белый фон, скруглённые углы, оранжевый акцент сверху
+  // Section cards
   const sections = kp.sections
   const cardGap = 24
   const cardTop = 190
-  // ИТОГО бар снизу
   const itogoH = 64
   const monthlyH = kp.monthlyTotal > 0 ? 40 : 0
   const cardBottom = H - 40 - itogoH - monthlyH - 16
   const cardH = cardBottom - cardTop
-
-  // Карточки заполняют всю ширину (как тарифы)
   const areaW = W - pad * 2
   const totalCards = sections.length
-  // Для 1 секции — карточка на ~65% ширины; для нескольких — равномерно
   const cardW = totalCards === 1
     ? areaW * 0.55
     : (areaW - cardGap * (totalCards - 1)) / totalCards
 
   sections.forEach((section, idx) => {
-    const cx = totalCards === 1
-      ? pad  // от левого края
-      : pad + idx * (cardW + cardGap)
+    const cx = totalCards === 1 ? pad : pad + idx * (cardW + cardGap)
 
-    // Card bg — светло-серый как в тарифах
     fillRoundRect(ctx, cx, cardTop, cardW, cardH, 20, '#F5F5F5', {
       color: 'rgba(0,0,0,0.05)', blur: 16, y: 4
     })
 
-    // Orange top accent bar — как у "Развитие" в тарифах
     ctx.save()
     roundRect(ctx, cx, cardTop, cardW, 8, 20)
     ctx.clip()
@@ -187,50 +304,36 @@ function renderBondaSlide(ctx: CanvasRenderingContext2D, kp: KPResult, parsed: P
     ctx.fillRect(cx, cardTop, cardW, 8)
     ctx.restore()
 
-    // Section title — bold, dark — как "Безопасность" в тарифах
     ctx.font = '900 28px Inter, -apple-system, sans-serif'
     ctx.fillStyle = DARK
     ctx.textBaseline = 'top'
     ctx.fillText(section.title, cx + 36, cardTop + 32)
 
-    // Subtitle (описание секции)
     ctx.font = '400 18px Inter, -apple-system, sans-serif'
     ctx.fillStyle = RED
     ctx.fillText(section.items.length === 1 ? 'Состав пакета' : `${section.items.length} позиций`, cx + 36, cardTop + 68)
 
-    // Items — orange dot bullets, like tariff features
     let iy = cardTop + 110
     const itemSpacing = Math.min(52, (cardH - 200) / Math.max(section.items.length, 1))
 
     for (const item of section.items) {
       if (iy > cardBottom - 100) break
-
-      // Orange dot bullet
       drawDot(ctx, cx + 44, iy + 10, 6, RED)
-
-      // Item name — может быть длинным, переносим
       ctx.font = '400 20px Inter, -apple-system, sans-serif'
       ctx.fillStyle = DARK
       ctx.textBaseline = 'top'
       const nameMaxW = cardW - 240
       const nextY = wrapText(ctx, item.name, cx + 64, iy, nameMaxW, 28)
-
-      // Price — справа
       ctx.font = '700 20px Inter, -apple-system, sans-serif'
       ctx.fillStyle = DARK
       ctx.textAlign = 'right'
-      const pStr = item.qty > 1
-        ? `${fmt(item.unitPrice)} × ${item.qty}`
-        : fmt(item.total)
+      const pStr = item.qty > 1 ? `${fmt(item.unitPrice)} × ${item.qty}` : fmt(item.total)
       ctx.fillText(pStr, cx + cardW - 36, iy)
       ctx.textAlign = 'left'
-
       iy = Math.max(nextY, iy + itemSpacing)
     }
 
-    // Price at bottom of card — крупная, как "50 000 ₽/мес" в тарифах
     const priceY = cardTop + cardH - 72
-    // Separator line
     ctx.strokeStyle = '#DCDEE2'
     ctx.lineWidth = 1
     ctx.beginPath()
@@ -244,7 +347,7 @@ function renderBondaSlide(ctx: CanvasRenderingContext2D, kp: KPResult, parsed: P
     ctx.fillText(fmt(section.subtotal), cx + 36, priceY)
   })
 
-  // === ИТОГО BAR (full width) ===
+  // ИТОГО bar
   const itogoY = cardBottom + 16
   fillRoundRect(ctx, pad, itogoY, areaW, itogoH, 14, RED, {
     color: 'rgba(230,60,20,0.15)', blur: 16, y: 4
@@ -262,6 +365,18 @@ function renderBondaSlide(ctx: CanvasRenderingContext2D, kp: KPResult, parsed: P
     ctx.textAlign = 'center'
     ctx.fillText(`Ежемесячно: ${fmt(kp.monthlyTotal)}`, pad + areaW / 2, itogoY + itogoH + 20)
     ctx.textAlign = 'left'
+  }
+}
+
+// ================================================================
+//  БОНДА router
+// ================================================================
+async function renderBondaSlide(ctx: CanvasRenderingContext2D, kp: KPResult, parsed: ParsedRequest) {
+  const isFindir = parsed.license_type === 'findir' && parsed.findir_tariff
+  if (isFindir) {
+    await renderBondaFindirSlide(ctx, kp, parsed)
+  } else {
+    renderBondaGenericSlide(ctx, kp, parsed)
   }
 }
 
@@ -285,13 +400,11 @@ function renderInnoSlide(ctx: CanvasRenderingContext2D, kp: KPResult, parsed: Pa
   const CARD_BG = '#F0F1F5'
   const CARD_BORDER = '#C8CCDA'
 
-  // === BACKGROUND ===
   ctx.fillStyle = BG
   ctx.fillRect(0, 0, W, H)
 
   const pad = 72
 
-  // === HEADER ===
   // INNO. logo
   ctx.font = '900 32px Inter, -apple-system, sans-serif'
   ctx.fillStyle = DARK
@@ -313,19 +426,18 @@ function renderInnoSlide(ctx: CanvasRenderingContext2D, kp: KPResult, parsed: Pa
     wrapText(ctx, subtitle, pad, 148, W * 0.5, 26)
   }
 
-  // Client info (right)
+  // Client info
   ctx.textAlign = 'right'
   ctx.font = '400 20px Inter, -apple-system, sans-serif'
   ctx.fillStyle = GRAY
   ctx.fillText(`${kp.clientName}  •  ${parsed.locations} точ.`, W - pad, 44)
   ctx.textAlign = 'left'
 
-  // === LAYOUT: features left, prices right ===
   const rightColW = 420
   const leftW = W - pad * 2 - rightColW - 40
   const contentTop = 200
 
-  // === LEFT: Features card ===
+  // Features card
   const hasSvc = svcSection && svcSection.items.length > 0
   const featCardH = hasSvc ? H - contentTop - 220 : H - contentTop - 60
 
@@ -334,7 +446,6 @@ function renderInnoSlide(ctx: CanvasRenderingContext2D, kp: KPResult, parsed: Pa
   })
   strokeRoundRect(ctx, pad, contentTop, leftW, featCardH, 20, CARD_BORDER, 1.5)
 
-  // Orange top accent
   ctx.save()
   roundRect(ctx, pad, contentTop, leftW, 6, 20)
   ctx.clip()
@@ -342,13 +453,11 @@ function renderInnoSlide(ctx: CanvasRenderingContext2D, kp: KPResult, parsed: Pa
   ctx.fillRect(pad, contentTop, leftW, 6)
   ctx.restore()
 
-  // Card title
   ctx.font = '800 24px Inter, -apple-system, sans-serif'
   ctx.fillStyle = DARK
   ctx.textBaseline = 'top'
   ctx.fillText('Базовый пакет услуг', pad + 32, contentTop + 24)
 
-  // Features in 2 columns
   const half = Math.ceil(features.length / 2)
   const col1X = pad + 32
   const col2X = pad + leftW / 2 + 16
@@ -360,16 +469,14 @@ function renderInnoSlide(ctx: CanvasRenderingContext2D, kp: KPResult, parsed: Pa
     const x = isLeft ? col1X : col2X
     const row = isLeft ? i : i - half
     const y = featStartY + row * featLineH
-
     drawDot(ctx, x + 6, y + 10, 5, ORANGE)
-
     ctx.font = '400 16px Inter, -apple-system, sans-serif'
     ctx.fillStyle = DARK
     ctx.textBaseline = 'top'
     wrapText(ctx, feat, x + 22, y + 2, leftW / 2 - 80, 21)
   })
 
-  // === LEFT: Services card (if any) ===
+  // Services card
   if (hasSvc) {
     const svcTop = contentTop + featCardH + 16
     const svcH = H - svcTop - 60
@@ -379,7 +486,6 @@ function renderInnoSlide(ctx: CanvasRenderingContext2D, kp: KPResult, parsed: Pa
     })
     strokeRoundRect(ctx, pad, svcTop, leftW, svcH, 20, CARD_BORDER, 1.5)
 
-    // Gray top accent
     ctx.save()
     roundRect(ctx, pad, svcTop, leftW, 6, 20)
     ctx.clip()
@@ -408,11 +514,10 @@ function renderInnoSlide(ctx: CanvasRenderingContext2D, kp: KPResult, parsed: Pa
     }
   }
 
-  // === RIGHT: Price cards ===
+  // Right: Price cards
   const rightX = W - pad - rightColW
   let cardY = contentTop
 
-  // Location count
   const hasDevices = parsed.devices > 0
   const countW = hasDevices ? (rightColW - 16) / 2 : rightColW
 
@@ -445,7 +550,6 @@ function renderInnoSlide(ctx: CanvasRenderingContext2D, kp: KPResult, parsed: Pa
 
   cardY += 130
 
-  // Price cards
   const renderPriceCard = (label: string, amount: number, accent: boolean, sub?: string) => {
     const ch = sub ? 140 : 120
     fillRoundRect(ctx, rightX, cardY, rightColW, ch, 16, CARD_BG)
@@ -484,7 +588,6 @@ function renderInnoSlide(ctx: CanvasRenderingContext2D, kp: KPResult, parsed: Pa
     renderPriceCard('Стоимость оборудования', equipSection.subtotal, false)
   }
 
-  // TOTAL bar
   const totalY = Math.max(cardY + 8, H - 100)
   fillRoundRect(ctx, rightX, totalY, rightColW, 60, 16, ORANGE, {
     color: 'rgba(255,107,0,0.2)', blur: 16, y: 4
@@ -516,7 +619,7 @@ export async function renderCommercialSlide(
   if (isInno) {
     renderInnoSlide(ctx, kp, parsed)
   } else {
-    renderBondaSlide(ctx, kp, parsed)
+    await renderBondaSlide(ctx, kp, parsed)
   }
 
   return canvas.toDataURL('image/jpeg', 0.92)
