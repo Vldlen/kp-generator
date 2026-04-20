@@ -133,25 +133,26 @@ async function renderBondaFindirSlide(ctx: CanvasRenderingContext2D, kp: KPResul
   const selectedIdx = tariffMap[parsed.findir_tariff || 'Старт'] ?? 0
 
   // Позиции карточек (1920×1080, масштабированы из 2000×1126)
-  // Подогнаны под bonda_tariffs_ref.jpg
+  // Ref image: 2000×1126 → canvas 1920×1080, scaleX=0.96, scaleY=0.959
   const cards = [
-    { x: 46, y: 136, w: 556, h: 900 },   // Безопасность / Старт
-    { x: 618, y: 136, w: 570, h: 900 },   // Стабильность / Про
-    { x: 1204, y: 136, w: 570, h: 900 },  // Развитие / Ультра
+    { x: 46, y: 136, w: 556, h: 870 },   // Безопасность / Старт
+    { x: 618, y: 136, w: 570, h: 870 },   // Стабильность / Про
+    { x: 1204, y: 136, w: 570, h: 870 },  // Развитие / Ультра
   ]
 
-  // Области цен внизу карточек
+  // Области цен внизу карточек (оригинальные "50 000 ₽/мес" etc.)
+  // Цены в ref image ≈ y=900-980 из 1126 → canvas y=863-940
   const priceAreas = [
-    { x: 52, y: 930, w: 544, h: 95 },
-    { x: 624, y: 930, w: 558, h: 95 },
-    { x: 1210, y: 930, w: 558, h: 95 },
+    { x: 52, y: 840, w: 544, h: 110 },
+    { x: 624, y: 840, w: 558, h: 110 },
+    { x: 1210, y: 840, w: 558, h: 110 },
   ]
 
   // 3. Затемняем невыбранные карточки белым оверлеем
   for (let i = 0; i < 3; i++) {
     if (i !== selectedIdx) {
       const c = cards[i]
-      fillRoundRect(ctx, c.x, c.y, c.w, c.h, 16, 'rgba(255, 255, 255, 0.6)')
+      fillRoundRect(ctx, c.x, c.y, c.w, c.h, 16, 'rgba(255, 255, 255, 0.55)')
     }
   }
 
@@ -169,21 +170,6 @@ async function renderBondaFindirSlide(ctx: CanvasRenderingContext2D, kp: KPResul
   roundRect(ctx, sel.x - 2, sel.y - 2, sel.w + 4, sel.h + 4, 18)
   ctx.stroke()
   ctx.restore()
-
-  // Метка "Ваш тариф" сверху выбранной карточки
-  const badgeText = 'Ваш тариф'
-  ctx.font = '700 18px Inter, -apple-system, sans-serif'
-  const badgeW = ctx.measureText(badgeText).width + 32
-  const badgeH = 32
-  const badgeX = sel.x + sel.w / 2 - badgeW / 2
-  const badgeY = sel.y - badgeH - 6
-  fillRoundRect(ctx, badgeX, badgeY, badgeW, badgeH, 8, RED)
-  ctx.fillStyle = '#FFFFFF'
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-  ctx.fillText(badgeText, sel.x + sel.w / 2, badgeY + badgeH / 2)
-  ctx.textAlign = 'left'
-  ctx.textBaseline = 'top'
 
   // 5. Обновляем заголовок
   // Закрашиваем область заголовка (оставляем bondabiz лого справа)
@@ -207,11 +193,27 @@ async function renderBondaFindirSlide(ctx: CanvasRenderingContext2D, kp: KPResul
   ctx.fillStyle = GRAY
   ctx.fillText(`для ${kp.clientName}`, pad, 112)
 
-  // 6. Если > 1 локации — обновляем цены на всех карточках
+  // 6. Метка "Ваш тариф" сверху выбранной карточки (ПОСЛЕ заголовка, чтобы не перекрывалась)
+  const badgeText = 'Ваш тариф'
+  ctx.font = '700 18px Inter, -apple-system, sans-serif'
+  const badgeW = ctx.measureText(badgeText).width + 32
+  const badgeH = 30
+  const badgeX = sel.x + sel.w / 2 - badgeW / 2
+  const badgeY = sel.y + 4
+  fillRoundRect(ctx, badgeX, badgeY, badgeW, badgeH, 8, RED)
+  ctx.fillStyle = '#FFFFFF'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(badgeText, sel.x + sel.w / 2, badgeY + badgeH / 2)
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'top'
+
+  // 7. Обновляем цены на ВСЕХ карточках (оригинальные — для 1 ресторана,
+  //    если > 1, перезаписываем актуальными)
   if (parsed.locations > 1) {
     for (let i = 0; i < 3; i++) {
       const pa = priceAreas[i]
-      // Закрашиваем фоном карточки
+      // Закрашиваем область цены фоном карточки
       ctx.fillStyle = CARD_BG
       ctx.fillRect(pa.x + 4, pa.y, pa.w - 8, pa.h)
 
@@ -220,23 +222,24 @@ async function renderBondaFindirSlide(ctx: CanvasRenderingContext2D, kp: KPResul
       const priceStr = `${fmt(price)}/мес`
 
       ctx.font = '900 36px Inter, -apple-system, sans-serif'
-      ctx.fillStyle = i === selectedIdx ? DARK : DARK
+      ctx.fillStyle = i === selectedIdx ? RED : DARK
       ctx.textBaseline = 'top'
-      ctx.fillText(priceStr, pa.x + 18, pa.y + 28)
+      ctx.fillText(priceStr, pa.x + 18, pa.y + 30)
     }
   }
 
-  // 7. ИТОГО бар внизу (только для выбранного тарифа)
-  const itogoY = H - 50
-  const itogoW = 380
-  const itogoH = 40
-  const itogoX = sel.x + sel.w / 2 - itogoW / 2
-  fillRoundRect(ctx, itogoX, itogoY, itogoW, itogoH, 10, RED)
-  ctx.font = '800 22px Inter, -apple-system, sans-serif'
+  // 8. ИТОГО — полноширинная плашка внизу слайда
+  const areaW = W - 80
+  const itogoH = 52
+  const itogoY = H - itogoH - 14
+  fillRoundRect(ctx, 40, itogoY, areaW, itogoH, 12, RED, {
+    color: 'rgba(230,60,20,0.15)', blur: 16, y: 4
+  })
+  ctx.font = '800 26px Inter, -apple-system, sans-serif'
   ctx.fillStyle = '#FFFFFF'
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
-  ctx.fillText(`ИТОГО: ${fmt(kp.grandTotal)}`, itogoX + itogoW / 2, itogoY + itogoH / 2)
+  ctx.fillText(`ИТОГО: ${fmt(kp.grandTotal)}`, 40 + areaW / 2, itogoY + itogoH / 2)
   ctx.textAlign = 'left'
   ctx.textBaseline = 'top'
 }
