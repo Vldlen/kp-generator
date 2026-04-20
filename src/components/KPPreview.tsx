@@ -320,62 +320,116 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
       doc.rect(0, 0, slideW, slideH, 'F')
 
       if (!isInno) {
-        // === БОНДА: простой коммерческий слайд ===
-        const bondaOrange: [number, number, number] = [255, 80, 0]
+        // === БОНДА: коммерческий слайд в стиле реальных КП ===
+        const bondaRed: [number, number, number] = [230, 60, 20]
+        const bondaDark: [number, number, number] = [35, 35, 40]
 
+        // Лого bondabiz (текст)
         doc.setFont('Lato', 'bold')
-        doc.setTextColor(...darkText)
-        doc.setFontSize(22)
+        doc.setFontSize(14)
+        doc.setTextColor(...bondaDark)
+        doc.text('bonda', slideW - 60, 14)
+        doc.setTextColor(...bondaRed)
+        doc.text('biz', slideW - 60 + doc.getTextWidth('bonda'), 14)
+
+        // Заголовок
+        doc.setFont('Lato', 'bold')
+        doc.setFontSize(26)
+        doc.setTextColor(...bondaDark)
         const bondaTitle = parsed.license_type === 'findir'
-          ? `ФинДир «${parsed.findir_tariff || 'Старт'}»`
-          : 'BONDA BI — Бизнес-аналитика'
-        doc.text(bondaTitle, 20, 22)
+          ? `Тариф «${parsed.findir_tariff || 'Старт'}»`
+          : 'BONDA BI'
+        doc.text(bondaTitle, 18, 26)
 
+        // Подзаголовок
         doc.setFont('Lato', 'normal')
-        doc.setFontSize(10)
+        doc.setFontSize(9)
         doc.setTextColor(...grayText)
-        doc.text(`Для: ${currentKP.clientName}  \u2022  ${parsed.locations} ${parsed.locations === 1 ? 'локация' : 'локаций'}`, 20, 32)
+        doc.text(`стоимость на ${parsed.locations} ${parsed.locations === 1 ? 'ресторан' : 'ресторана'}  \u2022  ${currentKP.clientName}`, 18, 35)
 
-        // Стоимость по секциям
-        let bY = 48
-        for (const section of currentKP.sections) {
+        // Оранжевая линия-разделитель
+        doc.setDrawColor(...bondaRed)
+        doc.setLineWidth(1)
+        doc.line(18, 40, slideW - 18, 40)
+
+        // === Основная часть: карточки с деталями ===
+        const sections = currentKP.sections
+        const totalSections = sections.length
+        const cardGap = 8
+        const areaW = slideW - 36
+        const cardW = totalSections > 1 ? (areaW - cardGap * (totalSections - 1)) / totalSections : areaW * 0.6
+        const cardTop = 48
+        const cardH = 100
+
+        sections.forEach((section, idx) => {
+          const cx = 18 + idx * (cardW + cardGap)
+
+          // Фон карточки
           doc.setFillColor(255, 255, 255)
-          doc.roundedRect(20, bY, slideW - 40, 24, 3, 3, 'F')
-          doc.setDrawColor(200, 205, 215)
-          doc.roundedRect(20, bY, slideW - 40, 24, 3, 3, 'S')
+          doc.roundedRect(cx, cardTop, cardW, cardH, 4, 4, 'F')
+          doc.setDrawColor(220, 222, 230)
+          doc.setLineWidth(0.3)
+          doc.roundedRect(cx, cardTop, cardW, cardH, 4, 4, 'S')
 
+          // Оранжевая полоска сверху карточки
+          doc.setFillColor(...bondaRed)
+          doc.roundedRect(cx, cardTop, cardW, 3, 4, 4, 'F')
+          doc.setFillColor(255, 255, 255)
+          doc.rect(cx, cardTop + 2, cardW, 2, 'F')
+
+          // Название секции
           doc.setFont('Lato', 'bold')
           doc.setFontSize(10)
-          doc.setTextColor(...darkText)
-          doc.text(section.title, 28, bY + 10)
+          doc.setTextColor(...bondaDark)
+          doc.text(section.title, cx + 10, cardTop + 14)
 
+          // Позиции
+          let iy = cardTop + 24
           for (const item of section.items) {
+            if (iy > cardTop + cardH - 20) break
             doc.setFont('Lato', 'normal')
-            doc.setFontSize(9)
-            doc.setTextColor(...grayText)
-            doc.text(item.name, 28, bY + 18)
+            doc.setFontSize(7.5)
+            doc.setTextColor(100, 105, 115)
+            const itemText = item.name.length > 45 ? item.name.substring(0, 45) + '...' : item.name
+            doc.text(itemText, cx + 10, iy, { maxWidth: cardW - 50 })
+
+            doc.setFont('Lato', 'bold')
+            doc.setFontSize(8)
+            doc.setTextColor(...bondaDark)
+            const pStr = item.qty > 1
+              ? `${formatMoney(item.unitPrice)} \u00D7 ${item.qty}`
+              : formatMoney(item.total)
+            doc.text(pStr, cx + cardW - 10, iy, { align: 'right' })
+            iy += 10
           }
 
+          // Subtotal внизу карточки
+          doc.setFillColor(245, 246, 248)
+          doc.roundedRect(cx, cardTop + cardH - 18, cardW, 18, 0, 0, 'F')
+          // Скругляем только низ
+          doc.setFillColor(245, 246, 248)
+          doc.roundedRect(cx, cardTop + cardH - 4, cardW, 4, 4, 4, 'F')
+
           doc.setFont('Lato', 'bold')
-          doc.setFontSize(16)
-          doc.setTextColor(...bondaOrange)
-          doc.text(formatMoney(section.subtotal), slideW - 28, bY + 15, { align: 'right' })
+          doc.setFontSize(14)
+          doc.setTextColor(...bondaRed)
+          doc.text(formatMoney(section.subtotal) + ' \u20BD/мес', cx + cardW / 2, cardTop + cardH - 5, { align: 'center' })
+        })
 
-          bY += 30
-        }
-
-        // Итого
-        doc.setFillColor(...bondaOrange)
-        doc.roundedRect(20, bY + 4, slideW - 40, 14, 3, 3, 'F')
+        // === ИТОГО бар ===
+        const totalY = cardTop + cardH + 10
+        doc.setFillColor(...bondaRed)
+        doc.roundedRect(18, totalY, areaW, 16, 4, 4, 'F')
         doc.setFont('Lato', 'bold')
         doc.setTextColor(255, 255, 255)
         doc.setFontSize(14)
-        doc.text(`ИТОГО: ${formatMoney(currentKP.grandTotal)}`, slideW / 2, bY + 13, { align: 'center' })
+        doc.text(`ИТОГО: ${formatMoney(currentKP.grandTotal)}`, slideW / 2, totalY + 11, { align: 'center' })
+
         if (currentKP.monthlyTotal > 0) {
           doc.setFont('Lato', 'normal')
           doc.setFontSize(9)
           doc.setTextColor(...grayText)
-          doc.text(`Ежемесячно: ${formatMoney(currentKP.monthlyTotal)}`, slideW / 2, bY + 25, { align: 'center' })
+          doc.text(`Ежемесячно: ${formatMoney(currentKP.monthlyTotal)} \u20BD`, slideW / 2, totalY + 24, { align: 'center' })
         }
       } else {
       // === ИННО: коммерческий слайд (стиль реальных КП менеджеров) ===
