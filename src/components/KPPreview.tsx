@@ -286,7 +286,6 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
 
     try {
       const { default: jsPDF } = await import('jspdf')
-      const { default: autoTable } = await import('jspdf-autotable')
       const { LATO_REGULAR } = await import('@/lib/font-lato')
       const { LATO_BOLD } = await import('@/lib/font-lato-bold')
 
@@ -311,12 +310,9 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
         } catch { /* skip missing slides */ }
       }
 
-      // === КОММЕРЧЕСКИЙ СЛАЙД (HTML → картинка через html2canvas) ===
+      // === КОММЕРЧЕСКИЙ СЛАЙД «Детализация стоимости» (Canvas → JPEG) ===
       doc.addPage([slideW, slideH], 'l')
       const licType = parsed.license_type || 'kiosk'
-      const brandOrange: [number, number, number] = [255, 107, 0]
-      const darkText: [number, number, number] = [40, 45, 55]
-      const grayText: [number, number, number] = [120, 125, 135]
 
       try {
         console.log('[KP-PDF] Starting Canvas render, isInno:', isInno)
@@ -325,15 +321,12 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
         doc.addImage(slideImageData, 'JPEG', 0, 0, slideW, slideH)
       } catch (err) {
         console.error('[KP-PDF] Canvas render FAILED:', err)
-        // Фоллбэк: заметный текст чтобы точно видно что Canvas упал
         doc.setFillColor(237, 240, 248)
         doc.rect(0, 0, slideW, slideH, 'F')
-        doc.setFillColor(255, 0, 0)
-        doc.rect(0, 0, slideW, 4, 'F')  // красная полоска сверху = маркер фоллбэка
         doc.setFont('Lato', 'bold')
         doc.setFontSize(24)
-        doc.setTextColor(...darkText)
-        doc.text('[FALLBACK] Canvas render failed — check console', slideW / 2, slideH / 2, { align: 'center' })
+        doc.setTextColor(40, 45, 55)
+        doc.text('[FALLBACK] Canvas render failed', slideW / 2, slideH / 2, { align: 'center' })
       }
 
       // === Слайды оборудования (для ИННО) ===
@@ -348,78 +341,7 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
         }
       }
 
-      // === Детальная таблица (доп. страница для бухгалтерии) ===
-      doc.addPage([slideW, slideH], 'l')
-      doc.setFillColor(245, 247, 250)
-      doc.rect(0, 0, slideW, slideH, 'F')
-      doc.setFillColor(...brandOrange)
-      doc.rect(0, 0, slideW, 2, 'F')
-
-      doc.setFont('Lato', 'bold')
-      doc.setTextColor(...darkText)
-      doc.setFontSize(16)
-      doc.text('Детализация стоимости', 20, 16)
-      doc.setFont('Lato', 'normal')
-      doc.setFontSize(9)
-      doc.setTextColor(...grayText)
-      doc.text(`${currentKP.clientName} \u2022 ${currentKP.date}`, 20, 23)
-
-      let yPos = 30
-
-      for (const section of currentKP.sections) {
-        if (yPos > slideH - 30) {
-          doc.addPage([slideW, slideH], 'l')
-          doc.setFillColor(245, 247, 250)
-          doc.rect(0, 0, slideW, slideH, 'F')
-          doc.setFillColor(...brandOrange)
-          doc.rect(0, 0, slideW, 2, 'F')
-          yPos = 16
-        }
-
-        doc.setFont('Lato', 'bold')
-        doc.setFontSize(10)
-        doc.setTextColor(...brandOrange)
-        doc.text(section.title, 20, yPos)
-        yPos += 2
-
-        autoTable(doc, {
-          startY: yPos,
-          head: [['Наименование', 'Кол-во', 'Цена', 'Скидка', 'Сумма']],
-          body: section.items.map(item => [
-            item.name,
-            String(item.qty),
-            formatMoney(item.unitPrice),
-            item.discount > 0 ? `-${item.discount}%` : '\u2014',
-            formatMoney(item.total),
-          ]),
-          foot: [['', '', '', 'Итого:', formatMoney(section.subtotal)]],
-          theme: 'grid',
-          styles: { fontSize: 8, cellPadding: 2, font: 'Lato', fontStyle: 'normal', textColor: [50, 55, 70], lineColor: [210, 215, 225], lineWidth: 0.2 },
-          headStyles: { fillColor: [brandOrange[0], brandOrange[1], brandOrange[2]], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
-          bodyStyles: { fillColor: [255, 255, 255] },
-          alternateRowStyles: { fillColor: [248, 249, 252] },
-          footStyles: { fillColor: [235, 237, 242], textColor: [30, 35, 50], fontStyle: 'bold' },
-          columnStyles: { 0: { cellWidth: 'auto' }, 1: { halign: 'center', cellWidth: 18 }, 2: { halign: 'right', cellWidth: 35 }, 3: { halign: 'center', cellWidth: 20 }, 4: { halign: 'right', cellWidth: 35 } },
-          margin: { left: 20, right: 20 },
-        })
-
-        yPos = (doc as any).lastAutoTable.finalY + 6
-      }
-
-      // Итого бар
-      if (yPos > slideH - 20) {
-        doc.addPage([slideW, slideH], 'l')
-        doc.setFillColor(245, 247, 250)
-        doc.rect(0, 0, slideW, slideH, 'F')
-        yPos = 20
-      }
-
-      doc.setFillColor(...brandOrange)
-      doc.roundedRect(20, yPos, slideW - 40, 12, 3, 3, 'F')
-      doc.setFont('Lato', 'bold')
-      doc.setTextColor(255, 255, 255)
-      doc.setFontSize(12)
-      doc.text(`ИТОГО: ${formatMoney(currentKP.grandTotal)}`, slideW / 2, yPos + 8, { align: 'center' })
+      // === Детальная таблица удалена — детализация теперь в Canvas-слайде выше ===
 
       // === Слайды ПОСЛЕ ===
       for (const slide of slidesAfter) {
