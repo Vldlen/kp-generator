@@ -292,14 +292,18 @@ export async function generateKPPptx(
 
   // Находим макс. rId
   let maxRId = 0
-  for (const m of presRels.matchAll(/Id="rId(\d+)"/g)) {
-    const n = parseInt(m[1]); if (n > maxRId) maxRId = n
+  let rIdMatch: RegExpExecArray | null
+  const rIdRe = /Id="rId(\d+)"/g
+  while ((rIdMatch = rIdRe.exec(presRels)) !== null) {
+    const n = parseInt(rIdMatch[1]); if (n > maxRId) maxRId = n
   }
 
   // Находим макс. sldId
   let maxSldId = 256
-  for (const m of presXml.matchAll(/<p:sldId id="(\d+)"/g)) {
-    const n = parseInt(m[1]); if (n > maxSldId) maxSldId = n
+  let sldMatch: RegExpExecArray | null
+  const sldRe = /<p:sldId id="(\d+)"/g
+  while ((sldMatch = sldRe.exec(presXml)) !== null) {
+    const n = parseInt(sldMatch[1]); if (n > maxSldId) maxSldId = n
   }
 
   const beforeEntries: string[] = []
