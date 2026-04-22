@@ -453,7 +453,7 @@ export default function Home() {
                     </div>
                     <div onClick={() => update('need_implementation', !form.need_implementation)}>
                       <span className="text-white/80 text-sm">Внедрение и настройка</span>
-                      <span className="text-white/30 text-xs ml-2">15 000 ₽ / локация</span>
+                      <span className="text-white/30 text-xs ml-2">20 000 ₽ / локация</span>
                     </div>
                   </label>
 
@@ -461,7 +461,7 @@ export default function Home() {
                     <label className="text-sm text-white/40 block mb-1.5">Контент (позиции меню)</label>
                     <NumberInput value={form.content_items} onChange={v => update('content_items', v)} min={0} max={1000} />
                     {form.content_items > 0 && (
-                      <p className="text-xs text-white/30 mt-1">800 ₽ / позиция{form.content_items >= 100 ? ' (скидка 20%)' : form.content_items >= 50 ? ' (скидка 10%)' : ''}</p>
+                      <p className="text-xs text-white/30 mt-1">1 200 ₽ / позиция</p>
                     )}
                   </div>
                 </div>

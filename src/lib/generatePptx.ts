@@ -196,6 +196,61 @@ function fillCard(xml: string, card: CardMap, section: KPResult['sections'][0] |
 }
 
 // ================================================================
+//  Перепозиционирование карточек (EMU)
+// ================================================================
+
+const RIGHT_TOP_Y = 1683916
+const RIGHT_BOTTOM_Y = 4847481
+const FULL_RIGHT_HEIGHT = 6555209  // высота левой карточки = полная высота колонки
+const LEFT_X = 952500
+const RIGHT_X = 9248775
+const CARD_WIDTH = 8086725
+
+/** Сдвигает shape по Y на deltaY */
+function shiftShapeY(xml: string, shapeName: string, deltaY: number): string {
+  const namePattern = `name="${shapeName}"`
+  const nameIdx = xml.indexOf(namePattern)
+  if (nameIdx === -1) return xml
+
+  let spStart = xml.lastIndexOf('<p:sp>', nameIdx)
+  if (spStart === -1) spStart = xml.lastIndexOf('<p:sp ', nameIdx)
+  if (spStart === -1) return xml
+
+  const spEnd = xml.indexOf('</p:sp>', nameIdx) + '</p:sp>'.length
+  let block = xml.substring(spStart, spEnd)
+  block = block.replace(/<a:off x="(\d+)" y="(\d+)"/, (_, x, y) => {
+    return `<a:off x="${x}" y="${parseInt(y) + deltaY}"`
+  })
+  return xml.substring(0, spStart) + block + xml.substring(spEnd)
+}
+
+/** Меняет высоту контейнера shape */
+function resizeShapeHeight(xml: string, shapeName: string, newCy: number): string {
+  const namePattern = `name="${shapeName}"`
+  const nameIdx = xml.indexOf(namePattern)
+  if (nameIdx === -1) return xml
+
+  let spStart = xml.lastIndexOf('<p:sp>', nameIdx)
+  if (spStart === -1) spStart = xml.lastIndexOf('<p:sp ', nameIdx)
+  if (spStart === -1) return xml
+
+  const spEnd = xml.indexOf('</p:sp>', nameIdx) + '</p:sp>'.length
+  let block = xml.substring(spStart, spEnd)
+  block = block.replace(/<a:ext cx="(\d+)" cy="(\d+)"/, (_, cx, _cy) => {
+    return `<a:ext cx="${cx}" cy="${newCy}"`
+  })
+  return xml.substring(0, spStart) + block + xml.substring(spEnd)
+}
+
+/** Сдвигает ВСЕ shapes карточки по Y */
+function shiftCard(xml: string, card: CardMap, deltaY: number): string {
+  for (const name of getAllCardShapeNames(card)) {
+    xml = shiftShapeY(xml, name, deltaY)
+  }
+  return xml
+}
+
+// ================================================================
 //  Слайды-картинки
 // ================================================================
 
@@ -260,6 +315,21 @@ export async function generateKPPptx(
   slideXml = fillCard(slideXml, LEFT_CARD, equipSection)
   slideXml = fillCard(slideXml, RIGHT_TOP_CARD, licSection)
   slideXml = fillCard(slideXml, RIGHT_BOTTOM_CARD, svcSection)
+
+  // --- Перепозиционирование: заполняем пространство при удалённых блоках ---
+
+  if (!licSection && svcSection) {
+    // Лицензии убраны → двигаем Услуги на место Лицензий (вверх)
+    const deltaY = RIGHT_TOP_Y - RIGHT_BOTTOM_Y
+    slideXml = shiftCard(slideXml, RIGHT_BOTTOM_CARD, deltaY)
+    // Растягиваем контейнер Услуг на всю высоту правой колонки
+    slideXml = resizeShapeHeight(slideXml, RIGHT_BOTTOM_CARD.container, FULL_RIGHT_HEIGHT)
+  }
+
+  if (licSection && !svcSection) {
+    // Услуги убраны → растягиваем Лицензии на всю высоту правой колонки
+    slideXml = resizeShapeHeight(slideXml, RIGHT_TOP_CARD.container, FULL_RIGHT_HEIGHT)
+  }
 
   slideXml = replaceShapeText(slideXml, FOOTER.grandTotal, fmtNum(kp.grandTotal) + ' \u20BD')
 

@@ -17,21 +17,13 @@ export const innoSlidesBefore: SlideConfig[] = [
 
 // Слайды ПОСЛЕ коммерческого предложения
 export const innoSlidesAfter: SlideConfig[] = [
-  { file: 'inno_clients.jpg',   label: 'Клиенты нашей группы компаний' },
   { file: 'inno_contacts.jpg',  label: 'Контакты' },
 ]
 
-// Дополнительные слайды для оборудования (вставляются после коммерческого, до клиентов)
+// Дополнительные слайды для оборудования — убраны
 export const innoEquipmentSlides: Record<string, SlideConfig[]> = {
-  // Для Kiosk (планшет) — планшеты, кронштейны, варианты мини-киосков
-  kiosk: [
-    { file: 'inno_tablets.jpg', label: 'Варианты планшетов' },
-    { file: 'inno_mounts.jpg',  label: 'Варианты кронштейнов и адаптеров' },
-    { file: 'inno_kiosks.jpg',  label: 'Варианты киосков мини' },
-  ],
-  // Для Kiosk PRO — без доп. слайдов (в реальных КП их нет)
+  kiosk: [],
   kiosk_pro: [],
-  // QR и Ecomm — без оборудования
   qr: [],
   ecomm: [],
 }
