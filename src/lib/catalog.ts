@@ -124,58 +124,58 @@ export const posEquipment: Product[] = [
 export const tablets: Product[] = [
   {
     id: 'tab-oneplus-pad3',
-    name: 'OnePlus Pad 3',
+    name: 'Android планшет 13.2", 12/256Gb',
     category: 'tablet',
     company: 'inno',
     description: '13.2" AMOLED, флагманский планшет для киосков',
     costPrice: 37500,
     sellPrice: 65000,
     margin: 36.5,
-    specs: '13.2" AMOLED, Snapdragon',
+    specs: '13.2" AMOLED, 12/256Gb',
   },
   {
     id: 'tab-oneplus-padgo2',
-    name: 'OnePlus Pad Go 2',
+    name: 'Android планшет 12.1", 8/128Gb',
     category: 'tablet',
     company: 'inno',
     description: '12.1" LCD, оптимальное соотношение цена/качество',
     costPrice: 21500,
     sellPrice: 35000,
     margin: 32.4,
-    specs: '12.1" LCD',
+    specs: '12.1" LCD, 8/128Gb',
   },
   {
     id: 'tab-honor-pad10',
-    name: 'Honor Pad 10',
+    name: 'Android планшет 12.1", 8/128Gb',
     category: 'tablet',
     company: 'inno',
     description: '12.1" LCD, бюджетный вариант',
     costPrice: 21400,
     sellPrice: 34000,
     margin: 30.8,
-    specs: '12.1" LCD',
+    specs: '12.1" LCD, 8/128Gb',
   },
   {
     id: 'tab-redmi-pad2pro',
-    name: 'Redmi Pad 2 Pro',
+    name: 'Android планшет 12.1", 8/128Gb',
     category: 'tablet',
     company: 'inno',
     description: '12.1" LCD, Xiaomi экосистема',
     costPrice: 19300,
     sellPrice: 31000,
     margin: 31.5,
-    specs: '12.1" LCD',
+    specs: '12.1" LCD, 8/128Gb',
   },
   {
     id: 'tab-poco-pad-m1',
-    name: 'Poco Pad M1',
+    name: 'Android планшет 12.1", 8/128Gb',
     category: 'tablet',
     company: 'inno',
     description: '12.1" LCD, самый бюджетный',
     costPrice: 18500,
     sellPrice: 30000,
     margin: 32.2,
-    specs: '12.1" LCD',
+    specs: '12.1" LCD, 8/128Gb',
   },
 ]
 
@@ -318,10 +318,7 @@ export const innoLicenses: LicenseTier[] = [
     company: 'inno',
     description: 'Лицензия на киоск самообслуживания',
     pricing: {
-      '1-10': 10000,
-      '11-40': 9000,   // скидка 10%
-      '41-99': 8000,   // скидка 20%
-      '100+': 7000,    // скидка 30%
+      '1+': 10000,   // скидки отключены — ставятся вручную
     },
     period: 'month',
     features: [
@@ -338,10 +335,7 @@ export const innoLicenses: LicenseTier[] = [
     company: 'inno',
     description: 'Мини-франшиза innoClouds',
     pricing: {
-      '1-10': 10000,
-      '11-40': 9000,
-      '41-99': 8000,
-      '100+': 7000,
+      '1+': 10000,   // скидки отключены — ставятся вручную
     },
     period: 'month',
     features: [
@@ -426,24 +420,16 @@ export const services: ServiceItem[] = [
     name: 'Внедрение innoClouds',
     company: 'inno',
     description: 'Настройка и интеграция системы на локации',
-    pricePerUnit: 15000,
+    pricePerUnit: 20000,
     unit: 'локация',
-    volumeDiscount: [
-      { minQty: 10, discount: 10 },
-      { minQty: 20, discount: 20 },
-    ],
   },
   {
     id: 'svc-inno-content',
     name: 'Генерация контента',
     company: 'inno',
     description: 'Дизайн карточек товаров и промо-материалов',
-    pricePerUnit: 800,
+    pricePerUnit: 1200,
     unit: 'позиция',
-    volumeDiscount: [
-      { minQty: 50, discount: 10 },
-      { minQty: 100, discount: 20 },
-    ],
   },
   {
     id: 'svc-bonda-bi',
@@ -519,10 +505,8 @@ export const kioskKits: KioskKit[] = [
 
 // ---------- Скидки за объём лицензий ----------
 
-export function getLicensePrice(basePrice: number, qty: number): number {
-  if (qty >= 100) return basePrice * 0.7
-  if (qty >= 41) return basePrice * 0.8
-  if (qty >= 11) return basePrice * 0.9
+export function getLicensePrice(basePrice: number, _qty: number): number {
+  // Скидки отключены — ставятся вручную
   return basePrice
 }
 
@@ -530,9 +514,9 @@ export function getLicensePrice(basePrice: number, qty: number): number {
 
 export const periodMultiplier: Record<SubscriptionPeriod, { months: number; discount: number; label: string }> = {
   month: { months: 1, discount: 0, label: '1 месяц' },
-  quarter: { months: 3, discount: 5, label: '3 месяца (скидка 5%)' },
-  half_year: { months: 6, discount: 10, label: '6 месяцев (скидка 10%)' },
-  year: { months: 12, discount: 15, label: '12 месяцев (скидка 15%)' },
+  quarter: { months: 3, discount: 0, label: '3 месяца' },
+  half_year: { months: 6, discount: 0, label: '6 месяцев' },
+  year: { months: 12, discount: 0, label: '12 месяцев' },
 }
 
 // ---------- ФинДир: получить цену по тарифу и кол-ву локаций ----------

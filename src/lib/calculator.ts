@@ -178,10 +178,9 @@ export function calculateKP(req: ParsedRequest): KPResult {
 
       const basePrice = innoLic.price
       const unitPrice = getLicensePrice(basePrice, qty)
-      const periodDiscount = period.discount
       const totalMonths = period.months
       const pricePerMonth = unitPrice * qty
-      const totalPrice = pricePerMonth * totalMonths * (1 - periodDiscount / 100)
+      const totalPrice = pricePerMonth * totalMonths
 
       monthlyTotal = pricePerMonth
 
@@ -189,8 +188,8 @@ export function calculateKP(req: ParsedRequest): KPResult {
         name: `${innoLic.name} × ${qty} ${unitLabel} (${period.label})`,
         category: 'license_inno',
         qty,
-        unitPrice: unitPrice * totalMonths * (1 - periodDiscount / 100),
-        discount: periodDiscount,
+        unitPrice: unitPrice * totalMonths,
+        discount: 0,
         total: totalPrice,
       })
     }
@@ -198,7 +197,7 @@ export function calculateKP(req: ParsedRequest): KPResult {
     if (req.license_type === 'findir' && req.findir_tariff) {
       const price = getFindirPrice(req.findir_tariff, req.locations)
       const period_ = periodMultiplier[req.subscription_period]
-      const totalPrice = price * period_.months * (1 - period_.discount / 100)
+      const totalPrice = price * period_.months
 
       monthlyTotal = price
 
@@ -207,7 +206,7 @@ export function calculateKP(req: ParsedRequest): KPResult {
         category: 'Лицензия',
         qty: 1,
         unitPrice: totalPrice,
-        discount: period_.discount,
+        discount: 0,
         total: totalPrice,
       })
     }
@@ -216,15 +215,15 @@ export function calculateKP(req: ParsedRequest): KPResult {
       const svc = services.find(s => s.id === 'svc-bonda-bi')
       if (svc) {
         const period_ = periodMultiplier[req.subscription_period]
-        const totalPrice = svc.pricePerUnit * req.locations * period_.months * (1 - period_.discount / 100)
+        const totalPrice = svc.pricePerUnit * req.locations * period_.months
         monthlyTotal = svc.pricePerUnit * req.locations
 
         licItems.push({
           name: `BONDA BI — ${req.locations} лок. (${period_.label})`,
           category: 'Лицензия',
           qty: req.locations,
-          unitPrice: svc.pricePerUnit * period_.months * (1 - period_.discount / 100),
-          discount: period_.discount,
+          unitPrice: svc.pricePerUnit * period_.months,
+          discount: 0,
           total: totalPrice,
         })
       }
@@ -246,19 +245,13 @@ export function calculateKP(req: ParsedRequest): KPResult {
   if (req.need_implementation && req.locations > 0) {
     const impl = services.find(s => s.id === 'svc-inno-impl')
     if (impl) {
-      let discount = 0
-      if (impl.volumeDiscount) {
-        for (const vd of impl.volumeDiscount) {
-          if (req.locations >= vd.minQty) discount = vd.discount
-        }
-      }
-      const total = impl.pricePerUnit * req.locations * (1 - discount / 100)
+      const total = impl.pricePerUnit * req.locations
       svcItems.push({
         name: 'Внедрение и настройка',
         category: 'Услуги',
         qty: req.locations,
         unitPrice: impl.pricePerUnit,
-        discount,
+        discount: 0,
         total,
       })
     }
@@ -267,19 +260,13 @@ export function calculateKP(req: ParsedRequest): KPResult {
   if (req.content_items > 0) {
     const content = services.find(s => s.id === 'svc-inno-content')
     if (content) {
-      let discount = 0
-      if (content.volumeDiscount) {
-        for (const vd of content.volumeDiscount) {
-          if (req.content_items >= vd.minQty) discount = vd.discount
-        }
-      }
-      const total = content.pricePerUnit * req.content_items * (1 - discount / 100)
+      const total = content.pricePerUnit * req.content_items
       svcItems.push({
         name: 'Генерация контента (карточки меню)',
         category: 'Услуги',
         qty: req.content_items,
         unitPrice: content.pricePerUnit,
-        discount,
+        discount: 0,
         total,
       })
     }
