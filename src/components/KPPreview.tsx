@@ -8,7 +8,7 @@ import {
   innoSlidesBefore, innoSlidesAfter, innoEquipmentSlides,
   bondaSlidesBefore, bondaSlidesAfter,
 } from '@/lib/slides'
-import { renderCommercialSlide } from '@/lib/renderSlideImage'
+import { generateKPPptx } from '@/lib/generatePptx'
 
 // Маппинг категорий на русские названия
 const CATEGORY_LABELS: Record<string, string> = {
@@ -266,96 +266,17 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
   // Собрать KPResult для PDF
   const getCurrentKP = (): KPResult => ({ ...kp, sections, grandTotal })
 
-  // Загрузка картинок
-  const loadImage = async (src: string): Promise<string> => {
-    const res = await fetch(src)
-    const blob = await res.blob()
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onloadend = () => resolve(reader.result as string)
-      reader.onerror = reject
-      reader.readAsDataURL(blob)
-    })
-  }
-
-  // PDF — генерация в стиле актуальных КП менеджеров
-  const handleDownloadPDF = async () => {
-    console.log(`[KP-PDF] handleDownloadPDF called, build: ${BUILD_TAG}, isInno: ${isInno}`)
+  // PPTX — генерация презентации
+  const handleDownloadPPTX = async () => {
+    console.log(`[KP-PPTX] generating, build: ${BUILD_TAG}, isInno: ${isInno}`)
     setGenerating(true)
     const currentKP = getCurrentKP()
 
     try {
-      const { default: jsPDF } = await import('jspdf')
-      const { LATO_REGULAR } = await import('@/lib/font-lato')
-      const { LATO_BOLD } = await import('@/lib/font-lato-bold')
-
-      const slideW = 338, slideH = 190
-      const doc = new jsPDF('l', 'mm', [slideW, slideH])
-
-      doc.addFileToVFS('Lato-Regular.ttf', LATO_REGULAR)
-      doc.addFont('Lato-Regular.ttf', 'Lato', 'normal')
-      doc.addFileToVFS('Lato-Bold.ttf', LATO_BOLD)
-      doc.addFont('Lato-Bold.ttf', 'Lato', 'bold')
-      doc.setFont('Lato')
-
-      const slidesBefore = isInno ? innoSlidesBefore : bondaSlidesBefore
-      const slidesAfter = isInno ? innoSlidesAfter : bondaSlidesAfter
-
-      // === Слайды ДО коммерческого ===
-      for (let i = 0; i < slidesBefore.length; i++) {
-        if (i > 0) doc.addPage([slideW, slideH], 'l')
-        try {
-          const imgData = await loadImage(`/slides/${slidesBefore[i].file}`)
-          doc.addImage(imgData, 'JPEG', 0, 0, slideW, slideH)
-        } catch { /* skip missing slides */ }
-      }
-
-      // === КОММЕРЧЕСКИЙ СЛАЙД «Детализация стоимости» (Canvas → JPEG) ===
-      doc.addPage([slideW, slideH], 'l')
-      const licType = parsed.license_type || 'kiosk'
-
-      try {
-        console.log('[KP-PDF] Starting Canvas render, isInno:', isInno)
-        const slideImageData = await renderCommercialSlide(currentKP, parsed, isInno)
-        console.log('[KP-PDF] Canvas render OK, image length:', slideImageData.length)
-        doc.addImage(slideImageData, 'JPEG', 0, 0, slideW, slideH)
-      } catch (err) {
-        console.error('[KP-PDF] Canvas render FAILED:', err)
-        doc.setFillColor(237, 240, 248)
-        doc.rect(0, 0, slideW, slideH, 'F')
-        doc.setFont('Lato', 'bold')
-        doc.setFontSize(24)
-        doc.setTextColor(40, 45, 55)
-        doc.text('[FALLBACK] Canvas render failed', slideW / 2, slideH / 2, { align: 'center' })
-      }
-
-      // === Слайды оборудования (для ИННО) ===
-      if (isInno && licType) {
-        const equipSlides = innoEquipmentSlides[licType] || []
-        for (const slide of equipSlides) {
-          doc.addPage([slideW, slideH], 'l')
-          try {
-            const imgData = await loadImage(`/slides/${slide.file}`)
-            doc.addImage(imgData, 'JPEG', 0, 0, slideW, slideH)
-          } catch { /* skip missing */ }
-        }
-      }
-
-      // === Детальная таблица удалена — детализация теперь в Canvas-слайде выше ===
-
-      // === Слайды ПОСЛЕ ===
-      for (const slide of slidesAfter) {
-        doc.addPage([slideW, slideH], 'l')
-        try {
-          const imgData = await loadImage(`/slides/${slide.file}`)
-          doc.addImage(imgData, 'JPEG', 0, 0, slideW, slideH)
-        } catch { /* skip missing */ }
-      }
-
-      doc.save(`KP_${currentKP.clientName.replace(/[^a-zA-Zа-яА-Я0-9]/g, '_')}_${new Date().toISOString().slice(0, 10)}.pdf`)
+      await generateKPPptx(currentKP, parsed, isInno)
     } catch (err) {
-      console.error('PDF generation error:', err)
-      alert('Ошибка при генерации PDF.')
+      console.error('PPTX generation error:', err)
+      alert('Ошибка при генерации PPTX.')
     } finally {
       setGenerating(false)
     }
@@ -532,10 +453,10 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
         <div className="text-[10px] text-white/20 mt-2 text-right">build: {BUILD_TAG}</div>
       </div>
 
-      {/* Download PDF */}
+      {/* Download PPTX */}
       <div className="flex gap-3">
         <button
-          onClick={handleDownloadPDF}
+          onClick={handleDownloadPPTX}
           disabled={generating}
           className={`flex-1 py-3 rounded-xl font-medium text-white transition-all ${
             generating ? 'opacity-60 cursor-wait' : ''
@@ -547,9 +468,9 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
               </svg>
-              Генерация PDF...
+              Генерация PPTX...
             </span>
-          ) : 'Скачать PDF-презентацию'}
+          ) : 'Скачать PPTX-презентацию'}
         </button>
       </div>
     </div>
