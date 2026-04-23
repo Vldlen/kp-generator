@@ -4,10 +4,13 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { formatMoney, type KPResult, type LineItem } from '@/lib/calculator'
 import type { ParsedRequest } from '@/lib/prompt'
 import type { DBProduct } from '@/lib/supabase'
-import {
-  innoSlidesBefore, innoSlidesAfter, innoEquipmentSlides,
-  bondaSlidesBefore, bondaSlidesAfter,
-} from '@/lib/slides'
+// Количество слайдов в шаблонах (без КП-слайда)
+const SLIDE_COUNTS: Record<string, { before: number; after: number }> = {
+  qr:        { before: 3, after: 2 },  // inno_qr_template: 5 слайдов, КП после 3-го
+  ecomm:     { before: 3, after: 2 },
+  kiosk:     { before: 4, after: 2 },  // inno_kiosk_template: 6 слайдов, КП после 4-го
+  kiosk_pro: { before: 4, after: 2 },
+}
 import { generateKPPptx } from '@/lib/generatePptx'
 
 // Маппинг категорий на русские названия
@@ -447,8 +450,8 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
       <div className="rounded-xl bg-white/5 border border-white/10 p-4">
         <div className="text-sm text-white/50 mb-2">В PDF будет включено:</div>
         <div className="grid grid-cols-2 gap-2 text-xs text-white/40">
-          <div><span className="text-white/60">До КП:</span> {(isInno ? innoSlidesBefore : bondaSlidesBefore).length} слайдов</div>
-          <div><span className="text-white/60">После КП:</span> {(isInno ? innoSlidesAfter : bondaSlidesAfter).length} слайдов</div>
+          <div><span className="text-white/60">До КП:</span> {(SLIDE_COUNTS[parsed.license_type || 'kiosk']?.before || 3)} слайдов</div>
+          <div><span className="text-white/60">После КП:</span> {(SLIDE_COUNTS[parsed.license_type || 'kiosk']?.after || 2)} слайдов</div>
         </div>
         <div className="text-[10px] text-white/20 mt-2 text-right">build: {BUILD_TAG}</div>
       </div>
