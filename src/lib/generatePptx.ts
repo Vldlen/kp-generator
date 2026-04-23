@@ -1,20 +1,22 @@
 /**
  * generatePptx.ts
  *
- * Генерирует КП как .pptx:
- * 1. Берём базовый шаблон презентации (QR или Kiosk) — уже содержит все слайды
- * 2. Берём КП-слайд из commercial_template.pptx, редактируем данные
- * 3. Вставляем КП-слайд в нужную позицию базового шаблона
- * 4. Сохраняем итоговый .pptx
+ * Генерирует КП как .pptx, РЕДАКТИРУЯ настоящий PPTX-шаблон.
+ * Шаблон: /public/templates/commercial_template.pptx
  *
- * Шаблоны:
- * - /public/templates/inno_qr_template.pptx      → QR, Ecomm (КП после слайда 3)
- * - /public/templates/inno_kiosk_template.pptx    → Kiosk, Kiosk PRO (КП после слайда 4)
- * - /public/templates/commercial_template.pptx    → слайд с таблицей КП (138 shapes)
+ * 1. JSZip: открываем PPTX (ZIP с XML)
+ * 2. Находим shapes по именам → заменяем текст
+ * 3. Пустые секции → удаляем ВСЕ shapes блока (карточку + содержимое)
+ * 4. Добавляем слайды-картинки до/после
+ * 5. Сохраняем .pptx
  */
 
 import { type KPResult } from './calculator'
 import type { ParsedRequest } from './prompt'
+import {
+  innoSlidesBefore, innoSlidesAfter, innoEquipmentSlides,
+  bondaSlidesBefore, bondaSlidesAfter,
+} from './slides'
 
 function fmtNum(n: number): string {
   return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(n)
@@ -24,20 +26,21 @@ function fmtNum(n: number): string {
 //  Карта shapes — ВСЕ shapes каждого блока (включая разделители)
 // ================================================================
 
+/** Одна строка данных: [name, qty, price, discount, total] + разделители */
 interface RowDef {
   texts: [string, string, string, string, string]
-  separators: string[]
+  separators: string[] // Shape N — разделительные линии строки
 }
 
 interface CardMap {
-  container: string
-  title: string
-  headerTexts: string[]
-  headerSeps: string[]
-  rows: RowDef[]
-  totalSep: string
-  totalLabel: string
-  totalValue: string
+  container: string      // Shape N — белая карточка (фон)
+  title: string          // Text N — заголовок секции
+  headerTexts: string[]  // Text N × 5 — НАИМЕНОВАНИЕ, КОЛ., ЦЕНА, СКИДКА, СУММА
+  headerSeps: string[]   // Shape N × 5 — разделители под заголовками
+  rows: RowDef[]         // строки данных
+  totalSep: string       // Shape N — разделитель перед ИТОГО
+  totalLabel: string     // Text N — "ИТОГО"
+  totalValue: string     // Text N — сумма
 }
 
 // --- Левая карточка: Оборудование (7 строк) ---
@@ -100,6 +103,7 @@ function escapeXml(str: string): string {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
+/** Заменяет текст в shape по имени. Первый <a:t> получает текст, остальные очищаются. */
 function replaceShapeText(xml: string, shapeName: string, newText: string): string {
   const namePattern = `name="${shapeName}"`
   const nameIdx = xml.indexOf(namePattern)
@@ -123,6 +127,7 @@ function replaceShapeText(xml: string, shapeName: string, newText: string): stri
   return xml.substring(0, spStart) + block + xml.substring(spEndFull)
 }
 
+/** Полностью удаляет shape из XML по имени */
 function removeShape(xml: string, shapeName: string): string {
   const namePattern = `name="${shapeName}"`
   const nameIdx = xml.indexOf(namePattern)
@@ -138,6 +143,7 @@ function removeShape(xml: string, shapeName: string): string {
   return xml.substring(0, spStart) + xml.substring(spEnd + '</p:sp>'.length)
 }
 
+/** Собирает ВСЕ имена shapes карточки */
 function getAllCardShapeNames(card: CardMap): string[] {
   const names: string[] = [card.container, card.title, card.totalSep, card.totalLabel, card.totalValue]
   names.push(...card.headerTexts)
@@ -149,6 +155,7 @@ function getAllCardShapeNames(card: CardMap): string[] {
   return names
 }
 
+/** Удаляет ВСЕ shapes карточки */
 function removeCard(xml: string, card: CardMap): string {
   for (const name of getAllCardShapeNames(card)) {
     xml = removeShape(xml, name)
@@ -156,11 +163,15 @@ function removeCard(xml: string, card: CardMap): string {
   return xml
 }
 
+/** Заполняет карточку данными. Пустые строки — удаляются вместе с разделителями. */
 function fillCard(xml: string, card: CardMap, section: KPResult['sections'][0] | null): string {
+  // Секции нет → удаляем весь блок
   if (!section) return removeCard(xml, card)
 
+  // Заголовок
   xml = replaceShapeText(xml, card.title, section.title)
 
+  // Строки данных
   for (let i = 0; i < card.rows.length; i++) {
     const row = card.rows[i]
     if (i < section.items.length) {
@@ -171,11 +182,13 @@ function fillCard(xml: string, card: CardMap, section: KPResult['sections'][0] |
       xml = replaceShapeText(xml, row.texts[3], item.discount > 0 ? `-${item.discount}%` : '\u2014')
       xml = replaceShapeText(xml, row.texts[4], fmtNum(item.total))
     } else {
+      // Пустая строка → удаляем shapes + разделители
       for (const name of row.texts) xml = removeShape(xml, name)
       for (const name of row.separators) xml = removeShape(xml, name)
     }
   }
 
+  // ИТОГО
   xml = replaceShapeText(xml, card.totalLabel, 'ИТОГО')
   xml = replaceShapeText(xml, card.totalValue, fmtNum(section.subtotal) + ' \u20BD')
 
@@ -188,8 +201,12 @@ function fillCard(xml: string, card: CardMap, section: KPResult['sections'][0] |
 
 const RIGHT_TOP_Y = 1683916
 const RIGHT_BOTTOM_Y = 4847481
-const FULL_RIGHT_HEIGHT = 6555209
+const FULL_RIGHT_HEIGHT = 6555209  // высота левой карточки = полная высота колонки
+const LEFT_X = 952500
+const RIGHT_X = 9248775
+const CARD_WIDTH = 8086725
 
+/** Сдвигает shape по Y на deltaY */
 function shiftShapeY(xml: string, shapeName: string, deltaY: number): string {
   const namePattern = `name="${shapeName}"`
   const nameIdx = xml.indexOf(namePattern)
@@ -207,6 +224,7 @@ function shiftShapeY(xml: string, shapeName: string, deltaY: number): string {
   return xml.substring(0, spStart) + block + xml.substring(spEnd)
 }
 
+/** Меняет высоту контейнера shape */
 function resizeShapeHeight(xml: string, shapeName: string, newCy: number): string {
   const namePattern = `name="${shapeName}"`
   const nameIdx = xml.indexOf(namePattern)
@@ -224,6 +242,7 @@ function resizeShapeHeight(xml: string, shapeName: string, newCy: number): strin
   return xml.substring(0, spStart) + block + xml.substring(spEnd)
 }
 
+/** Сдвигает ВСЕ shapes карточки по Y */
 function shiftCard(xml: string, card: CardMap, deltaY: number): string {
   for (const name of getAllCardShapeNames(card)) {
     xml = shiftShapeY(xml, name, deltaY)
@@ -232,219 +251,170 @@ function shiftCard(xml: string, card: CardMap, deltaY: number): string {
 }
 
 // ================================================================
-//  Helpers
+//  Слайды-картинки
 // ================================================================
+
+const SLIDE_W_EMU = 18288000
+const SLIDE_H_EMU = 10287000
+
+function makeImageSlideXml(): string {
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+       xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+       xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <p:cSld><p:spTree>
+    <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+    <p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>
+    <p:pic>
+      <p:nvPicPr><p:cNvPr id="2" name="SlideImage"/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr>
+      <p:blipFill><a:blip r:embed="rId2"/><a:stretch><a:fillRect/></a:stretch></p:blipFill>
+      <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${SLIDE_W_EMU}" cy="${SLIDE_H_EMU}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>
+    </p:pic>
+  </p:spTree></p:cSld>
+</p:sld>`
+}
+
+function makeSlideRels(mediaPath: string): string {
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="${mediaPath}"/>
+</Relationships>`
+}
 
 async function fetchBuf(url: string): Promise<ArrayBuffer> {
   const res = await fetch(url)
   return res.arrayBuffer()
 }
 
-/** Находим максимальный числовой rId в XML */
-function findMaxRId(xml: string): number {
-  let max = 0
-  const re = /Id="rId(\d+)"/g
-  let m: RegExpExecArray | null
-  while ((m = re.exec(xml)) !== null) {
-    const n = parseInt(m[1]); if (n > max) max = n
-  }
-  return max
-}
-
-/** Находим максимальный sldId */
-function findMaxSldId(xml: string): number {
-  let max = 256
-  const re = /<p:sldId id="(\d+)"/g
-  let m: RegExpExecArray | null
-  while ((m = re.exec(xml)) !== null) {
-    const n = parseInt(m[1]); if (n > max) max = n
-  }
-  return max
-}
-
 // ================================================================
-//  EXPORT — Главная функция генерации PPTX
+//  EXPORT
 // ================================================================
 
 export async function generateKPPptx(
   kp: KPResult,
   parsed: ParsedRequest,
-  _isInno: boolean,
+  isInno: boolean,
 ): Promise<void> {
   const JSZip = (await import('jszip')).default
 
-  // ---------- 1. Определяем шаблоны ----------
+  // 1. Загружаем шаблон
+  const zip = await JSZip.loadAsync(await fetchBuf('/templates/commercial_template.pptx'))
 
-  const isQR = parsed.license_type === 'qr' || parsed.license_type === 'ecomm'
-  // QR/Ecomm → QR шаблон, KP после слайда 3
-  // Kiosk/Kiosk PRO → Kiosk шаблон, KP после слайда 4
-  const baseTemplatePath = isQR
-    ? '/templates/inno_qr_template.pptx'
-    : '/templates/inno_kiosk_template.pptx'
-  const kpInsertAfter = isQR ? 3 : 4
+  // 2. Редактируем коммерческий слайд
+  let slideXml = await zip.file('ppt/slides/slide1.xml')!.async('string')
 
-  // ---------- 2. Загружаем оба шаблона ----------
+  slideXml = replaceShapeText(slideXml, HEADER.clientName, kp.clientName)
+  slideXml = replaceShapeText(slideXml, HEADER.date, kp.date)
 
-  const [baseBuf, kpBuf] = await Promise.all([
-    fetchBuf(baseTemplatePath),
-    fetchBuf('/templates/commercial_template.pptx'),
-  ])
-
-  const baseZip = await JSZip.loadAsync(baseBuf)
-  const kpZip = await JSZip.loadAsync(kpBuf)
-
-  // ---------- 3. Редактируем КП-слайд ----------
-
-  let kpSlideXml = await kpZip.file('ppt/slides/slide1.xml')!.async('string')
-
-  kpSlideXml = replaceShapeText(kpSlideXml, HEADER.clientName, kp.clientName)
-  kpSlideXml = replaceShapeText(kpSlideXml, HEADER.date, kp.date)
-
+  // Маппинг секций → карточки
   const equipSection = kp.sections.find(s => s.title === 'Оборудование') || null
   const licSection = kp.sections.find(s => s.title === 'Лицензии и подписки') || null
   const svcSection = kp.sections.find(s => s.title === 'Услуги') || null
 
-  kpSlideXml = fillCard(kpSlideXml, LEFT_CARD, equipSection)
-  kpSlideXml = fillCard(kpSlideXml, RIGHT_TOP_CARD, licSection)
-  kpSlideXml = fillCard(kpSlideXml, RIGHT_BOTTOM_CARD, svcSection)
+  slideXml = fillCard(slideXml, LEFT_CARD, equipSection)
+  slideXml = fillCard(slideXml, RIGHT_TOP_CARD, licSection)
+  slideXml = fillCard(slideXml, RIGHT_BOTTOM_CARD, svcSection)
 
-  // Перепозиционирование
+  // --- Перепозиционирование: заполняем пространство при удалённых блоках ---
+
   if (!licSection && svcSection) {
+    // Лицензии убраны → двигаем Услуги на место Лицензий (вверх)
     const deltaY = RIGHT_TOP_Y - RIGHT_BOTTOM_Y
-    kpSlideXml = shiftCard(kpSlideXml, RIGHT_BOTTOM_CARD, deltaY)
-    kpSlideXml = resizeShapeHeight(kpSlideXml, RIGHT_BOTTOM_CARD.container, FULL_RIGHT_HEIGHT)
+    slideXml = shiftCard(slideXml, RIGHT_BOTTOM_CARD, deltaY)
+    // Растягиваем контейнер Услуг на всю высоту правой колонки
+    slideXml = resizeShapeHeight(slideXml, RIGHT_BOTTOM_CARD.container, FULL_RIGHT_HEIGHT)
   }
+
   if (licSection && !svcSection) {
-    kpSlideXml = resizeShapeHeight(kpSlideXml, RIGHT_TOP_CARD.container, FULL_RIGHT_HEIGHT)
+    // Услуги убраны → растягиваем Лицензии на всю высоту правой колонки
+    slideXml = resizeShapeHeight(slideXml, RIGHT_TOP_CARD.container, FULL_RIGHT_HEIGHT)
   }
 
-  kpSlideXml = replaceShapeText(kpSlideXml, FOOTER.grandTotal, fmtNum(kp.grandTotal) + ' \u20BD')
+  slideXml = replaceShapeText(slideXml, FOOTER.grandTotal, fmtNum(kp.grandTotal) + ' \u20BD')
 
-  // ---------- 4. Копируем зависимости КП-слайда в базовый шаблон ----------
+  zip.file('ppt/slides/slide1.xml', slideXml)
 
-  // Находим макс. номера layout и master в базовом шаблоне
-  const baseFiles = Object.keys(baseZip.files)
-  const layoutNums = baseFiles
-    .map(f => f.match(/slideLayouts\/slideLayout(\d+)\.xml$/))
-    .filter(Boolean)
-    .map(m => parseInt(m![1]))
-  const masterNums = baseFiles
-    .map(f => f.match(/slideMasters\/slideMaster(\d+)\.xml$/))
-    .filter(Boolean)
-    .map(m => parseInt(m![1]))
-  const themeNums = baseFiles
-    .map(f => f.match(/theme\/theme(\d+)\.xml$/))
-    .filter(Boolean)
-    .map(m => parseInt(m![1]))
+  // 3. Собираем слайды-картинки
+  const slidesBefore = isInno ? innoSlidesBefore : bondaSlidesBefore
+  const slidesAfter = isInno ? innoSlidesAfter : bondaSlidesAfter
+  const licType = parsed.license_type || 'kiosk'
+  const equipSlides = isInno ? (innoEquipmentSlides[licType] || []) : []
 
-  const newLayoutNum = Math.max(...layoutNums) + 1
-  const newMasterNum = Math.max(...masterNums) + 1
-  const newThemeNum = Math.max(...themeNums) + 1
+  const allImages = [
+    ...slidesBefore.map(s => ({ file: s.file, pos: 'before' as const })),
+    ...equipSlides.map(s => ({ file: s.file, pos: 'after' as const })),
+    ...slidesAfter.map(s => ({ file: s.file, pos: 'after' as const })),
+  ]
 
-  // Копируем theme из КП
-  const kpTheme = await kpZip.file('ppt/theme/theme1.xml')!.async('string')
-  baseZip.file(`ppt/theme/theme${newThemeNum}.xml`, kpTheme)
-
-  // Копируем slideMaster из КП (обновляем ссылки на layout и theme)
-  let kpMaster = await kpZip.file('ppt/slideMasters/slideMaster1.xml')!.async('string')
-  baseZip.file(`ppt/slideMasters/slideMaster${newMasterNum}.xml`, kpMaster)
-
-  // slideMaster rels: ссылки на slideLayout и theme
-  const masterRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout${newLayoutNum}.xml"/>
-  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="../theme/theme${newThemeNum}.xml"/>
-</Relationships>`
-  baseZip.file(`ppt/slideMasters/_rels/slideMaster${newMasterNum}.xml.rels`, masterRels)
-
-  // Копируем slideLayout из КП (обновляем ссылку на master)
-  let kpLayout = await kpZip.file('ppt/slideLayouts/slideLayout1.xml')!.async('string')
-  baseZip.file(`ppt/slideLayouts/slideLayout${newLayoutNum}.xml`, kpLayout)
-
-  const layoutRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="../slideMasters/slideMaster${newMasterNum}.xml"/>
-</Relationships>`
-  baseZip.file(`ppt/slideLayouts/_rels/slideLayout${newLayoutNum}.xml.rels`, layoutRels)
-
-  // ---------- 5. Добавляем КП-слайд в базовый шаблон ----------
-
-  // Определяем номер нового слайда (не конфликтует с существующими)
-  const existingSlideNums = baseFiles
-    .map(f => f.match(/slides\/slide(\d+)\.xml$/))
-    .filter(Boolean)
-    .map(m => parseInt(m![1]))
-  const newSlideNum = Math.max(...existingSlideNums) + 1
-
-  // Сохраняем отредактированный КП-слайд
-  baseZip.file(`ppt/slides/slide${newSlideNum}.xml`, kpSlideXml)
-
-  // Rels для КП-слайда (ссылка на наш layout)
-  const slideRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout${newLayoutNum}.xml"/>
-</Relationships>`
-  baseZip.file(`ppt/slides/_rels/slide${newSlideNum}.xml.rels`, slideRels)
-
-  // ---------- 6. Обновляем метаданные PPTX ----------
-
-  let contentTypes = await baseZip.file('[Content_Types].xml')!.async('string')
-  let presXml = await baseZip.file('ppt/presentation.xml')!.async('string')
-  let presRels = await baseZip.file('ppt/_rels/presentation.xml.rels')!.async('string')
-
-  // Добавляем Content Type для нового слайда, layout, master, theme
-  contentTypes = contentTypes.replace('</Types>', [
-    `<Override PartName="/ppt/slides/slide${newSlideNum}.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>`,
-    `<Override PartName="/ppt/slideLayouts/slideLayout${newLayoutNum}.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/>`,
-    `<Override PartName="/ppt/slideMasters/slideMaster${newMasterNum}.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/>`,
-    `<Override PartName="/ppt/theme/theme${newThemeNum}.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>`,
-    '</Types>',
-  ].join(''))
-
-  // Добавляем rel для нового слайда и slideMaster в presentation.xml.rels
-  const maxRId = findMaxRId(presRels)
-  const newSlideRId = `rId${maxRId + 1}`
-  const newMasterRId = `rId${maxRId + 2}`
-
-  presRels = presRels.replace('</Relationships>', [
-    `<Relationship Id="${newSlideRId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide${newSlideNum}.xml"/>`,
-    `<Relationship Id="${newMasterRId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="slideMasters/slideMaster${newMasterNum}.xml"/>`,
-    '</Relationships>',
-  ].join(''))
-
-  // Добавляем slideMaster в sldMasterIdLst
-  const maxSldMasterId = 2147483647  // safe high number
-  presXml = presXml.replace('</p:sldMasterIdLst>',
-    `<p:sldMasterId id="${maxSldMasterId}" r:id="${newMasterRId}"/></p:sldMasterIdLst>`)
-
-  // Вставляем КП-слайд в правильную позицию в sldIdLst
-  const maxSldId = findMaxSldId(presXml)
-  const newSldId = maxSldId + 1
-  const kpSldEntry = `<p:sldId id="${newSldId}" r:id="${newSlideRId}"/>`
-
-  // Разбираем sldIdLst, вставляем после N-го слайда
-  const sldIdListMatch = presXml.match(/<p:sldIdLst>([\s\S]*?)<\/p:sldIdLst>/)
-  if (sldIdListMatch) {
-    const sldEntries: string[] = []
-    const entryRe = /<p:sldId[^/]*\/>/g
-    let em: RegExpExecArray | null
-    while ((em = entryRe.exec(sldIdListMatch[1])) !== null) {
-      sldEntries.push(em[0])
-    }
-    // Вставляем КП-слайд после позиции kpInsertAfter
-    sldEntries.splice(kpInsertAfter, 0, kpSldEntry)
-    presXml = presXml.replace(/<p:sldIdLst>[\s\S]*?<\/p:sldIdLst>/,
-      `<p:sldIdLst>${sldEntries.join('')}</p:sldIdLst>`)
+  // Загружаем картинки
+  const loaded: { data: ArrayBuffer; pos: 'before' | 'after' }[] = []
+  for (const img of allImages) {
+    try {
+      loaded.push({ data: await fetchBuf(`/slides/${img.file}`), pos: img.pos })
+    } catch { /* skip missing */ }
   }
 
-  // Сохраняем обновлённые метаданные
-  baseZip.file('[Content_Types].xml', contentTypes)
-  baseZip.file('ppt/presentation.xml', presXml)
-  baseZip.file('ppt/_rels/presentation.xml.rels', presRels)
+  // 4. Модифицируем PPTX: добавляем слайды
+  let contentTypes = await zip.file('[Content_Types].xml')!.async('string')
+  let presXml = await zip.file('ppt/presentation.xml')!.async('string')
+  let presRels = await zip.file('ppt/_rels/presentation.xml.rels')!.async('string')
 
-  // ---------- 7. Скачиваем ----------
+  // Находим макс. rId
+  let maxRId = 0
+  let rIdMatch: RegExpExecArray | null
+  const rIdRe = /Id="rId(\d+)"/g
+  while ((rIdMatch = rIdRe.exec(presRels)) !== null) {
+    const n = parseInt(rIdMatch[1]); if (n > maxRId) maxRId = n
+  }
 
-  const blob = await baseZip.generateAsync({
+  // Находим макс. sldId
+  let maxSldId = 256
+  let sldMatch: RegExpExecArray | null
+  const sldRe = /<p:sldId id="(\d+)"/g
+  while ((sldMatch = sldRe.exec(presXml)) !== null) {
+    const n = parseInt(sldMatch[1]); if (n > maxSldId) maxSldId = n
+  }
+
+  const beforeEntries: string[] = []
+  const afterEntries: string[] = []
+
+  for (let i = 0; i < loaded.length; i++) {
+    const img = loaded[i]
+    const slideNum = i + 2
+    const rId = `rId${maxRId + 1 + i}`
+    const sldId = maxSldId + 1 + i
+    const mediaName = `slide_img_${i + 1}.jpeg`
+
+    zip.file(`ppt/media/${mediaName}`, img.data)
+    zip.file(`ppt/slides/slide${slideNum}.xml`, makeImageSlideXml())
+    zip.file(`ppt/slides/_rels/slide${slideNum}.xml.rels`, makeSlideRels(`../media/${mediaName}`))
+
+    contentTypes = contentTypes.replace('</Types>',
+      `<Override PartName="/ppt/slides/slide${slideNum}.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/></Types>`)
+
+    presRels = presRels.replace('</Relationships>',
+      `<Relationship Id="${rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide${slideNum}.xml"/></Relationships>`)
+
+    const entry = `<p:sldId id="${sldId}" r:id="${rId}"/>`
+    if (img.pos === 'before') beforeEntries.push(entry)
+    else afterEntries.push(entry)
+  }
+
+  // Вставляем слайды в sldIdLst (до и после коммерческого)
+  const existingSldId = presXml.match(/<p:sldIdLst>([\s\S]*?)<\/p:sldIdLst>/)?.[1] || ''
+  presXml = presXml.replace(/<p:sldIdLst>[\s\S]*?<\/p:sldIdLst>/,
+    `<p:sldIdLst>${beforeEntries.join('')}${existingSldId}${afterEntries.join('')}</p:sldIdLst>`)
+
+  if (!contentTypes.includes('Extension="jpeg"'))
+    contentTypes = contentTypes.replace('</Types>', '<Default Extension="jpeg" ContentType="image/jpeg"/></Types>')
+
+  zip.file('[Content_Types].xml', contentTypes)
+  zip.file('ppt/presentation.xml', presXml)
+  zip.file('ppt/_rels/presentation.xml.rels', presRels)
+
+  // 5. Скачиваем
+  const blob = await zip.generateAsync({
     type: 'blob',
     mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   })
