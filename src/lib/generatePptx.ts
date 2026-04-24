@@ -401,6 +401,9 @@ export async function generateKPPptx(
   // КП шаблон 20×11.25" → базовый 10×5.63" (масштаб ×0.5)
   kpSlideXml = scaleSlideXml(kpSlideXml, SCALE)
 
+  // Замена -apple-system → Arial (macOS-шрифт отсутствует на Windows/Linux/Android, вызывает тофу)
+  kpSlideXml = kpSlideXml.replace(/typeface="-apple-system"/g, 'typeface="Arial"')
+
   kpSlideXml = replaceShapeText(kpSlideXml, HEADER.clientName, kp.clientName)
   kpSlideXml = replaceShapeText(kpSlideXml, HEADER.date, kp.date)
 
