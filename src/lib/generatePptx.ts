@@ -89,6 +89,7 @@ const RIGHT_BOTTOM_CARD: CardMap = {
 }
 
 const HEADER = { clientName: 'Text 1', date: 'Text 2' }
+const SLIDE_TITLE = 'Text 0'  // "Детализация стоимости" — общий заголовок слайда
 const FOOTER = { grandTotal: 'Text 136' }
 
 // ================================================================
@@ -371,6 +372,14 @@ export async function generateKPPptx(
 
     if (licSection) kpSlideXml = shiftCard(kpSlideXml, RIGHT_TOP_CARD, dx, 0)
     if (svcSection) kpSlideXml = shiftCard(kpSlideXml, RIGHT_BOTTOM_CARD, dx, 0)
+
+    // Заголовок «Детализация стоимости» → в центр
+    const titleCenterX = Math.round((SLIDE_W - 7480940) / 2)  // ширина Text 0
+    kpSlideXml = shiftShape(kpSlideXml, SLIDE_TITLE, titleCenterX - LEFT_X, 0)
+
+    // Имя клиента и дату тоже центрируем
+    kpSlideXml = shiftShape(kpSlideXml, HEADER.clientName, dx, 0)
+    kpSlideXml = shiftShape(kpSlideXml, HEADER.date, dx, 0)
 
     // Если только одна карточка — растянуть на всю высоту
     if (licSection && !svcSection) {
