@@ -122,12 +122,17 @@ function scaleSlideXml(xml: string, scale: number): string {
     return `<a:ext cx="${Math.round(parseInt(cx) * scale)}" cy="${Math.round(parseInt(cy) * scale)}"`
   })
 
-  // Масштабируем размеры шрифтов (a:sz val="1600" → 800)
-  xml = xml.replace(/<a:sz val="(\d+)"/g, (_, sz) => {
-    return `<a:sz val="${Math.round(parseInt(sz) * scale)}"`
+  // Масштабируем шрифты: sz="4800" внутри <a:rPr> и <a:endParaRPr>
+  xml = xml.replace(/ sz="(\d+)"/g, (_, sz) => {
+    return ` sz="${Math.round(parseInt(sz) * scale)}"`
   })
 
-  // Масштабируем line widths и подобные атрибуты w в <a:ln w="...">
+  // Масштабируем spacing: spc="-48" (межбуквенный интервал)
+  xml = xml.replace(/ spc="(-?\d+)"/g, (_, spc) => {
+    return ` spc="${Math.round(parseInt(spc) * scale)}"`
+  })
+
+  // Масштабируем line widths: <a:ln w="12700">
   xml = xml.replace(/<a:ln w="(\d+)"/g, (_, w) => {
     return `<a:ln w="${Math.round(parseInt(w) * scale)}"`
   })
