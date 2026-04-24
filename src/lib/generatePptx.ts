@@ -258,6 +258,50 @@ function shiftCard(xml: string, card: CardMap, dx: number, dy: number): string {
 }
 
 /**
+ * Растягивает карточку на новую ширину, пропорционально перераспределяя
+ * x-позиции и ширины всех дочерних элементов.
+ */
+function widenCard(
+  xml: string,
+  card: CardMap,
+  origCardX: number,
+  origCardW: number,
+  newCardX: number,
+  newCardW: number,
+): string {
+  const scaleX = newCardW / origCardW
+
+  for (const shapeName of getAllCardShapeNames(card)) {
+    const namePattern = `name="${shapeName}"`
+    const nameIdx = xml.indexOf(namePattern)
+    if (nameIdx === -1) continue
+
+    let spStart = xml.lastIndexOf('<p:sp>', nameIdx)
+    if (spStart === -1) spStart = xml.lastIndexOf('<p:sp ', nameIdx)
+    if (spStart === -1) continue
+
+    const spEnd = xml.indexOf('</p:sp>', nameIdx) + '</p:sp>'.length
+    let block = xml.substring(spStart, spEnd)
+
+    // Пересчитать x → пропорционально новой ширине
+    block = block.replace(/<a:off x="(\d+)" y="(\d+)"/, (_, x, y) => {
+      const relX = parseInt(x) - origCardX
+      const newX = newCardX + Math.round(relX * scaleX)
+      return `<a:off x="${newX}" y="${y}"`
+    })
+
+    // Растянуть ширину элемента (контейнер, разделители, ячейки)
+    block = block.replace(/<a:ext cx="(\d+)" cy="(\d+)"/, (_, cx, cy) => {
+      return `<a:ext cx="${Math.round(parseInt(cx) * scaleX)}" cy="${cy}"`
+    })
+
+    xml = xml.substring(0, spStart) + block + xml.substring(spEnd)
+  }
+
+  return xml
+}
+
+/**
  * Компактифицирует карточку по точным Y-позициям из шаблона.
  * Подтягивает ИТОГО к последней заполненной строке + ужимает контейнер.
  */
@@ -395,27 +439,22 @@ export async function generateKPPptx(
   }
 
   if (!hasLeft) {
-    // Оборудования нет → центрируем оставшиеся карточки по горизонтали
-    const centerX = Math.round((SLIDE_W - CARD_WIDTH) / 2)
-    const dx = centerX - RIGHT_X
+    // Оборудования нет → растягиваем карточки на полную ширину (обе колонки)
+    const FULL_WIDTH = RIGHT_X + CARD_WIDTH - LEFT_X  // от левого края до правого
 
-    if (hasRT) kpSlideXml = shiftCard(kpSlideXml, RIGHT_TOP_CARD, dx, 0)
-    if (hasRB) kpSlideXml = shiftCard(kpSlideXml, RIGHT_BOTTOM_CARD, dx, 0)
-
-    // Заголовок «Детализация стоимости» → центр
-    const titleW = 5943600  // ширина заголовка в предмасштабированном шаблоне
-    kpSlideXml = shiftShape(kpSlideXml, SLIDE_TITLE, Math.round((SLIDE_W - titleW) / 2) - LEFT_X, 0)
-
-    // Имя клиента и дату → сдвигаем на тот же dx
-    kpSlideXml = shiftShape(kpSlideXml, HEADER.clientName, dx, 0)
-    kpSlideXml = shiftShape(kpSlideXml, HEADER.date, dx, 0)
+    if (hasRT) {
+      kpSlideXml = widenCard(kpSlideXml, RIGHT_TOP_CARD, RIGHT_X, CARD_WIDTH, LEFT_X, FULL_WIDTH)
+    }
+    if (hasRB) {
+      kpSlideXml = widenCard(kpSlideXml, RIGHT_BOTTOM_CARD, RIGHT_X, CARD_WIDTH, LEFT_X, FULL_WIDTH)
+    }
 
     if (hasRT && !hasRB) {
-      // Только Лицензии → растянуть на всю высоту
+      // Только Лицензии → растянуть ещё и по высоте
       kpSlideXml = resizeShape(kpSlideXml, RIGHT_TOP_CARD.container, null, FULL_RIGHT_HEIGHT)
     }
     if (!hasRT && hasRB) {
-      // Только Услуги → вверх + растянуть
+      // Только Услуги → вверх на место Лицензий + растянуть по высоте
       const dy = RIGHT_TOP_Y - RIGHT_BOTTOM_Y
       kpSlideXml = shiftCard(kpSlideXml, RIGHT_BOTTOM_CARD, 0, dy)
       kpSlideXml = resizeShape(kpSlideXml, RIGHT_BOTTOM_CARD.container, null, FULL_RIGHT_HEIGHT)
