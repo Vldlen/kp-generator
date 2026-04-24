@@ -137,6 +137,13 @@ function scaleSlideXml(xml: string, scale: number): string {
     return `<a:ln w="${Math.round(parseInt(w) * scale)}"`
   })
 
+  // Масштабируем внутренние отступы текстовых боксов (lIns, tIns, rIns, bIns)
+  // Без этого отступы остаются 25400 EMU и съедают >50% мелких боксов → текст не влезает
+  xml = xml.replace(/ lIns="(\d+)"/g, (_, v) => ` lIns="${Math.round(parseInt(v) * scale)}"`)
+  xml = xml.replace(/ tIns="(\d+)"/g, (_, v) => ` tIns="${Math.round(parseInt(v) * scale)}"`)
+  xml = xml.replace(/ rIns="(\d+)"/g, (_, v) => ` rIns="${Math.round(parseInt(v) * scale)}"`)
+  xml = xml.replace(/ bIns="(\d+)"/g, (_, v) => ` bIns="${Math.round(parseInt(v) * scale)}"`)
+
   return xml
 }
 
