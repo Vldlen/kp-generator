@@ -93,6 +93,49 @@ const SLIDE_TITLE = 'Text 0'  // "Детализация стоимости" —
 const FOOTER = { grandTotal: 'Text 136' }
 
 // ================================================================
+//  Масштабирование КП-слайда под размер базового шаблона
+// ================================================================
+
+// КП шаблон: 18288000 × 10287000 (20" × 11.25")
+// QR/Kiosk шаблоны: 9144000 × 5143500 (10" × 5.63")
+// Масштаб = 0.5 (ровно в 2 раза)
+
+const KP_SLIDE_W = 18288000
+const KP_SLIDE_H = 10287000
+const BASE_SLIDE_W = 9144000
+const BASE_SLIDE_H = 5143500
+const SCALE = BASE_SLIDE_W / KP_SLIDE_W  // 0.5
+
+/**
+ * Масштабирует ВСЕ позиции и размеры в XML слайда.
+ * Обрабатывает <a:off x="" y=""/> и <a:ext cx="" cy=""/>
+ * а также шрифты <a:sz val=""/>
+ */
+function scaleSlideXml(xml: string, scale: number): string {
+  // Масштабируем позиции (a:off x, y)
+  xml = xml.replace(/<a:off x="(\d+)" y="(\d+)"/g, (_, x, y) => {
+    return `<a:off x="${Math.round(parseInt(x) * scale)}" y="${Math.round(parseInt(y) * scale)}"`
+  })
+
+  // Масштабируем размеры (a:ext cx, cy)
+  xml = xml.replace(/<a:ext cx="(\d+)" cy="(\d+)"/g, (_, cx, cy) => {
+    return `<a:ext cx="${Math.round(parseInt(cx) * scale)}" cy="${Math.round(parseInt(cy) * scale)}"`
+  })
+
+  // Масштабируем размеры шрифтов (a:sz val="1600" → 800)
+  xml = xml.replace(/<a:sz val="(\d+)"/g, (_, sz) => {
+    return `<a:sz val="${Math.round(parseInt(sz) * scale)}"`
+  })
+
+  // Масштабируем line widths и подобные атрибуты w в <a:ln w="...">
+  xml = xml.replace(/<a:ln w="(\d+)"/g, (_, w) => {
+    return `<a:ln w="${Math.round(parseInt(w) * scale)}"`
+  })
+
+  return xml
+}
+
+// ================================================================
 //  XML helpers
 // ================================================================
 
@@ -186,26 +229,26 @@ function fillCard(xml: string, card: CardMap, section: KPResult['sections'][0] |
 //  Перепозиционирование и адаптивная раскладка (EMU)
 // ================================================================
 
-// Координаты из шаблона (EMU)
-const LEFT_X = 952500
-const RIGHT_X = 9248775
-const CARD_WIDTH = 8086725
-const SLIDE_W = 18288000
+// Координаты из шаблона — уже в масштабе базового шаблона (×0.5)
+const S = SCALE
+const LEFT_X = Math.round(952500 * S)
+const RIGHT_X = Math.round(9248775 * S)
+const CARD_WIDTH = Math.round(8086725 * S)
+const SLIDE_W_SCALED = BASE_SLIDE_W
 
-const LEFT_Y = 1683916
-const RIGHT_TOP_Y = 1683916
-const RIGHT_BOTTOM_Y = 4847481
-const FULL_RIGHT_HEIGHT = 6555209  // = высота левой карточки
+const RIGHT_TOP_Y = Math.round(1683916 * S)
+const RIGHT_BOTTOM_Y = Math.round(4847481 * S)
+const FULL_RIGHT_HEIGHT = Math.round(6555209 * S)
 
-const LEFT_CARD_HEIGHT = 6555209
-const RIGHT_BOTTOM_HEIGHT = 3391644
+const LEFT_CARD_HEIGHT = Math.round(6555209 * S)
+const RIGHT_BOTTOM_HEIGHT = Math.round(3391644 * S)
 
-// Точные Y-позиции строк данных (из шаблона)
-const LEFT_ROW_Y = [2760687, 3198316, 3635946, 4073575, 4729758, 5167387, 5605016]
-const LEFT_TOTAL_Y = { sep: 6285012, label: 6504087, value: 6437412 }
+// Точные Y-позиции строк данных (масштабированные)
+const LEFT_ROW_Y = [2760687, 3198316, 3635946, 4073575, 4729758, 5167387, 5605016].map(y => Math.round(y * S))
+const LEFT_TOTAL_Y = { sep: Math.round(6285012 * S), label: Math.round(6504087 * S), value: Math.round(6437412 * S) }
 
-const RB_ROW_Y = [5924252, 6361881]
-const RB_TOTAL_Y = { sep: 6823323, label: 7042398, value: 6975723 }
+const RB_ROW_Y = [5924252, 6361881].map(y => Math.round(y * S))
+const RB_TOTAL_Y = { sep: Math.round(6823323 * S), label: Math.round(7042398 * S), value: Math.round(6975723 * S) }
 
 /** Сдвигает shape по оси (dx, dy) */
 function shiftShape(xml: string, shapeName: string, dx: number, dy: number): string {
@@ -346,9 +389,12 @@ export async function generateKPPptx(
   const baseZip = await JSZip.loadAsync(baseBuf)
   const kpZip = await JSZip.loadAsync(kpBuf)
 
-  // ---------- 3. Редактируем КП-слайд (старая рабочая логика) ----------
+  // ---------- 3. Масштабируем и редактируем КП-слайд ----------
 
   let kpSlideXml = await kpZip.file('ppt/slides/slide1.xml')!.async('string')
+
+  // КП шаблон 20×11.25" → базовый 10×5.63" (масштаб ×0.5)
+  kpSlideXml = scaleSlideXml(kpSlideXml, SCALE)
 
   kpSlideXml = replaceShapeText(kpSlideXml, HEADER.clientName, kp.clientName)
   kpSlideXml = replaceShapeText(kpSlideXml, HEADER.date, kp.date)
@@ -390,15 +436,15 @@ export async function generateKPPptx(
 
   if (!hasLeft) {
     // Оборудования нет → центрируем оставшиеся карточки по горизонтали
-    const centerX = Math.round((SLIDE_W - CARD_WIDTH) / 2)
+    const centerX = Math.round((SLIDE_W_SCALED - CARD_WIDTH) / 2)
     const dx = centerX - RIGHT_X
 
     if (hasRT) kpSlideXml = shiftCard(kpSlideXml, RIGHT_TOP_CARD, dx, 0)
     if (hasRB) kpSlideXml = shiftCard(kpSlideXml, RIGHT_BOTTOM_CARD, dx, 0)
 
     // Заголовок «Детализация стоимости» → центр
-    const titleW = 7480940
-    kpSlideXml = shiftShape(kpSlideXml, SLIDE_TITLE, Math.round((SLIDE_W - titleW) / 2) - LEFT_X, 0)
+    const titleW = Math.round(7480940 * S)
+    kpSlideXml = shiftShape(kpSlideXml, SLIDE_TITLE, Math.round((SLIDE_W_SCALED - titleW) / 2) - LEFT_X, 0)
 
     // Имя клиента и дату → сдвигаем на тот же dx
     kpSlideXml = shiftShape(kpSlideXml, HEADER.clientName, dx, 0)
