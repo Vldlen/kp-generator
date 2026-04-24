@@ -411,6 +411,11 @@ export async function generateKPPptx(
   // Замена -apple-system → Arial (macOS-шрифт отсутствует на Windows/Linux/Android, вызывает тофу)
   kpSlideXml = kpSlideXml.replace(/typeface="-apple-system"/g, 'typeface="Arial"')
 
+  // Отключаем normAutofit (PowerPoint ужимает шрифт → текст перестаёт влезать по ширине)
+  // и wrap="square" → "none" (текст не переносится, а просто выходит за рамку — для коротких лейблов это ОК)
+  kpSlideXml = kpSlideXml.replace(/<a:normAutofit\/>/g, '<a:noAutofit/>')
+  kpSlideXml = kpSlideXml.replace(/wrap="square"/g, 'wrap="none"')
+
   kpSlideXml = replaceShapeText(kpSlideXml, HEADER.clientName, kp.clientName)
   kpSlideXml = replaceShapeText(kpSlideXml, HEADER.date, kp.date)
 
