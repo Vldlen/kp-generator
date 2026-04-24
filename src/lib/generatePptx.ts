@@ -182,14 +182,29 @@ function fillCard(xml: string, card: CardMap, section: KPResult['sections'][0] |
 }
 
 // ================================================================
-//  Перепозиционирование карточек (EMU)
+//  Перепозиционирование и адаптивная раскладка (EMU)
 // ================================================================
+
+// Координаты из шаблона
+const LEFT_X = 952500
+const RIGHT_X = 9248775
+const CARD_WIDTH = 8086725
+const SLIDE_W = 18288000
 
 const RIGHT_TOP_Y = 1683916
 const RIGHT_BOTTOM_Y = 4847481
-const FULL_RIGHT_HEIGHT = 6555209
+const FULL_RIGHT_HEIGHT = 6555209  // = высота левой карточки
 
-function shiftShapeY(xml: string, shapeName: string, deltaY: number): string {
+const LEFT_CARD_HEIGHT = 6555209
+const RIGHT_TOP_HEIGHT = 2954015
+const RIGHT_BOTTOM_HEIGHT = 3391644
+
+// Шаг между строками данных (EMU)
+const LEFT_ROW_STEP = 474055       // 7 строк в левой карточке
+const RIGHT_BOTTOM_ROW_STEP = 437629  // 2 строки в правой нижней
+
+/** Сдвигает shape по оси (dx, dy) */
+function shiftShape(xml: string, shapeName: string, dx: number, dy: number): string {
   const namePattern = `name="${shapeName}"`
   const nameIdx = xml.indexOf(namePattern)
   if (nameIdx === -1) return xml
@@ -201,12 +216,13 @@ function shiftShapeY(xml: string, shapeName: string, deltaY: number): string {
   const spEnd = xml.indexOf('</p:sp>', nameIdx) + '</p:sp>'.length
   let block = xml.substring(spStart, spEnd)
   block = block.replace(/<a:off x="(\d+)" y="(\d+)"/, (_, x, y) => {
-    return `<a:off x="${x}" y="${parseInt(y) + deltaY}"`
+    return `<a:off x="${parseInt(x) + dx}" y="${parseInt(y) + dy}"`
   })
   return xml.substring(0, spStart) + block + xml.substring(spEnd)
 }
 
-function resizeShapeHeight(xml: string, shapeName: string, newCy: number): string {
+/** Меняет размер shape */
+function resizeShape(xml: string, shapeName: string, newCx: number | null, newCy: number | null): string {
   const namePattern = `name="${shapeName}"`
   const nameIdx = xml.indexOf(namePattern)
   if (nameIdx === -1) return xml
@@ -217,16 +233,36 @@ function resizeShapeHeight(xml: string, shapeName: string, newCy: number): strin
 
   const spEnd = xml.indexOf('</p:sp>', nameIdx) + '</p:sp>'.length
   let block = xml.substring(spStart, spEnd)
-  block = block.replace(/<a:ext cx="(\d+)" cy="(\d+)"/, (_, cx, _cy) => {
-    return `<a:ext cx="${cx}" cy="${newCy}"`
+  block = block.replace(/<a:ext cx="(\d+)" cy="(\d+)"/, (_, cx, cy) => {
+    return `<a:ext cx="${newCx !== null ? newCx : parseInt(cx)}" cy="${newCy !== null ? newCy : parseInt(cy)}"`
   })
   return xml.substring(0, spStart) + block + xml.substring(spEnd)
 }
 
-function shiftCard(xml: string, card: CardMap, deltaY: number): string {
+/** Сдвигает ВСЕ shapes карточки */
+function shiftCard(xml: string, card: CardMap, dx: number, dy: number): string {
   for (const name of getAllCardShapeNames(card)) {
-    xml = shiftShapeY(xml, name, deltaY)
+    xml = shiftShape(xml, name, dx, dy)
   }
+  return xml
+}
+
+/** Компактифицирует карточку: сдвигает ИТОГО вверх + ужимает контейнер */
+function compactCard(
+  xml: string, card: CardMap, actualItems: number, maxRows: number, rowStep: number, originalHeight: number,
+): string {
+  if (actualItems >= maxRows) return xml
+  const unusedRows = maxRows - actualItems
+  const shift = unusedRows * rowStep
+
+  // Сдвигаем ИТОГО-зону вверх
+  xml = shiftShape(xml, card.totalSep, 0, -shift)
+  xml = shiftShape(xml, card.totalLabel, 0, -shift)
+  xml = shiftShape(xml, card.totalValue, 0, -shift)
+
+  // Ужимаем контейнер
+  xml = resizeShape(xml, card.container, null, originalHeight - shift)
+
   return xml
 }
 
@@ -303,14 +339,46 @@ export async function generateKPPptx(
   kpSlideXml = fillCard(kpSlideXml, RIGHT_TOP_CARD, licSection)
   kpSlideXml = fillCard(kpSlideXml, RIGHT_BOTTOM_CARD, svcSection)
 
-  // Перепозиционирование при удалённых блоках
+  // --- A. Компактификация: ИТОГО поднимается к последней строке ---
+
+  if (equipSection) {
+    kpSlideXml = compactCard(kpSlideXml, LEFT_CARD,
+      equipSection.items.length, LEFT_CARD.rows.length, LEFT_ROW_STEP, LEFT_CARD_HEIGHT)
+  }
+  if (svcSection) {
+    kpSlideXml = compactCard(kpSlideXml, RIGHT_BOTTOM_CARD,
+      svcSection.items.length, RIGHT_BOTTOM_CARD.rows.length, RIGHT_BOTTOM_ROW_STEP, RIGHT_BOTTOM_HEIGHT)
+  }
+
+  // --- B. Вертикальная адаптация правой колонки ---
+
   if (!licSection && svcSection) {
-    const deltaY = RIGHT_TOP_Y - RIGHT_BOTTOM_Y
-    kpSlideXml = shiftCard(kpSlideXml, RIGHT_BOTTOM_CARD, deltaY)
-    kpSlideXml = resizeShapeHeight(kpSlideXml, RIGHT_BOTTOM_CARD.container, FULL_RIGHT_HEIGHT)
+    // Лицензий нет → Услуги поднимаются на место Лицензий, растягиваются
+    kpSlideXml = shiftCard(kpSlideXml, RIGHT_BOTTOM_CARD, 0, RIGHT_TOP_Y - RIGHT_BOTTOM_Y)
+    kpSlideXml = resizeShape(kpSlideXml, RIGHT_BOTTOM_CARD.container, null, FULL_RIGHT_HEIGHT)
   }
   if (licSection && !svcSection) {
-    kpSlideXml = resizeShapeHeight(kpSlideXml, RIGHT_TOP_CARD.container, FULL_RIGHT_HEIGHT)
+    // Услуг нет → Лицензии растягиваются на всю высоту
+    kpSlideXml = resizeShape(kpSlideXml, RIGHT_TOP_CARD.container, null, FULL_RIGHT_HEIGHT)
+  }
+
+  // --- C. Горизонтальное центрирование (нет Оборудования) ---
+
+  if (!equipSection) {
+    // Правые карточки → в центр слайда
+    const centerX = Math.round((SLIDE_W - CARD_WIDTH) / 2)
+    const dx = centerX - RIGHT_X
+
+    if (licSection) kpSlideXml = shiftCard(kpSlideXml, RIGHT_TOP_CARD, dx, 0)
+    if (svcSection) kpSlideXml = shiftCard(kpSlideXml, RIGHT_BOTTOM_CARD, dx, 0)
+
+    // Если только одна карточка — растянуть на всю высоту
+    if (licSection && !svcSection) {
+      kpSlideXml = resizeShape(kpSlideXml, RIGHT_TOP_CARD.container, null, FULL_RIGHT_HEIGHT)
+    }
+    if (!licSection && svcSection) {
+      kpSlideXml = resizeShape(kpSlideXml, RIGHT_BOTTOM_CARD.container, null, FULL_RIGHT_HEIGHT)
+    }
   }
 
   kpSlideXml = replaceShapeText(kpSlideXml, FOOTER.grandTotal, fmtNum(kp.grandTotal) + ' \u20BD')
