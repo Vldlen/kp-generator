@@ -122,7 +122,8 @@ function replaceShapeText(xml: string, shapeName: string, newText: string): stri
 
   let block = xml.substring(spStart, spEndFull)
   let firstDone = false
-  block = block.replace(/<a:t>([^<]*)<\/a:t>/g, () => {
+  // Матчим <a:t>text</a:t> И <a:t xml:space="preserve">text</a:t>
+  block = block.replace(/<a:t(?:\s[^>]*)?>([^<]*)<\/a:t>/g, () => {
     if (!firstDone) { firstDone = true; return `<a:t>${escapeXml(newText)}</a:t>` }
     return '<a:t></a:t>'
   })
