@@ -542,6 +542,12 @@ export default function Home() {
               />
             </Section>
 
+            {/* Синхронизация каталога */}
+            <GoogleSyncButton onSync={(data) => {
+              setCatalog(data)
+              console.log(`Каталог синхронизирован: ${data.length} товаров`)
+            }} />
+
             {/* Кнопка */}
             <button
               onClick={handleGenerate}
@@ -877,6 +883,50 @@ function CatalogUpload({ onUpload }: { onUpload: (data: DBProduct[]) => void }) 
       {status === 'error' && (
         <p className="text-xs text-red-400/70">{errorMsg}</p>
       )}
+    </div>
+  )
+}
+
+function GoogleSyncButton({ onSync }: { onSync: (data: DBProduct[]) => void }) {
+  const [status, setStatus] = useState<'idle' | 'syncing' | 'done' | 'error'>('idle')
+  const [count, setCount] = useState(0)
+  const [errorMsg, setErrorMsg] = useState('')
+
+  const handleSync = async () => {
+    setStatus('syncing')
+    setErrorMsg('')
+    try {
+      const products = await fetchGoogleSheetProducts()
+      if (products.length === 0) {
+        setStatus('error')
+        setErrorMsg('Таблица пуста или нет доступа по ссылке')
+        return
+      }
+      setCount(products.length)
+      setStatus('done')
+      onSync(products)
+    } catch (err) {
+      setStatus('error')
+      setErrorMsg(err instanceof Error ? err.message : 'Ошибка синхронизации')
+    }
+  }
+
+  return (
+    <div className="space-y-1">
+      <button
+        onClick={handleSync}
+        disabled={status === 'syncing'}
+        className="w-full rounded-xl bg-white/5 border border-white/10 px-4 py-2.5 text-center hover:border-green-500/40 hover:bg-green-500/5 transition disabled:opacity-50 group"
+      >
+        <span className="text-xs text-white/40 group-hover:text-green-400 flex items-center justify-center gap-2">
+          <svg className={`w-3.5 h-3.5 ${status === 'syncing' ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          {status === 'syncing' ? 'Синхронизация...' : 'Обновить каталог из Google Sheets'}
+        </span>
+      </button>
+      {status === 'done' && <p className="text-xs text-green-400/70 text-center">Загружено {count} позиций</p>}
+      {status === 'error' && <p className="text-xs text-red-400/70 text-center">{errorMsg}</p>}
     </div>
   )
 }
