@@ -191,6 +191,7 @@ export const mounts: Product[] = [
   {
     id: 'mount-onkron-wall-fixed',
     name: 'Onkron настенный неподвижный',
+    kpName: 'Кронштейн настенный фиксированный',
     category: 'mount',
     company: 'inno',
     description: 'Кронштейн для телевизора настенный 10"-35" ONKRON R3 ROTO',
@@ -201,6 +202,7 @@ export const mounts: Product[] = [
   {
     id: 'mount-onkron-adapter',
     name: 'Onkron адаптер для планшета',
+    kpName: 'Адаптер для планшета',
     category: 'mount',
     company: 'inno',
     description: 'Универсальный держатель ONKRON для планшета 10.1-12.9',
@@ -211,6 +213,7 @@ export const mounts: Product[] = [
   {
     id: 'mount-onkron-wall-g150',
     name: 'Onkron настенный подвижный G150',
+    kpName: 'Кронштейн настенный подвижный',
     category: 'mount',
     company: 'inno',
     description: 'ONKRON кронштейн для телевизора 13"-34" настенный G150',
@@ -221,6 +224,7 @@ export const mounts: Product[] = [
   {
     id: 'mount-onkron-wall-g120',
     name: 'Onkron настенный подвижный G120',
+    kpName: 'Кронштейн настенный подвижный',
     category: 'mount',
     company: 'inno',
     description: 'ONKRON кронштейн для телевизора 13"-34" настенный G120',
@@ -231,6 +235,7 @@ export const mounts: Product[] = [
   {
     id: 'mount-onkron-desk-g80',
     name: 'Onkron настольный G80',
+    kpName: 'Кронштейн настольный',
     category: 'mount',
     company: 'inno',
     description: 'ONKRON G80 кронштейн для монитора настольный 13"-32"',
@@ -241,6 +246,7 @@ export const mounts: Product[] = [
   {
     id: 'mount-onkron-desk-g160',
     name: 'Onkron настольный G160',
+    kpName: 'Кронштейн настольный двойной',
     category: 'mount',
     company: 'inno',
     description: 'ONKRON кронштейн для двух мониторов настольный G160, 13-32 дюйма',
@@ -251,6 +257,7 @@ export const mounts: Product[] = [
   {
     id: 'mount-masterhold-desk',
     name: 'MasterHold настольный',
+    kpName: 'Стойка настольная для планшета',
     category: 'mount',
     company: 'inno',
     description: 'Универсальный адаптер для планшетов ONKRON APM-13T',
@@ -261,6 +268,7 @@ export const mounts: Product[] = [
   {
     id: 'mount-masterhold-kiosk',
     name: 'MasterHold комплекс креплений',
+    kpName: 'Стойка напольная для киоска',
     category: 'mount',
     company: 'inno',
     description: 'Стойка для кассового оборудования: планшет, банковский терминал, фискальный регистратор',
@@ -271,6 +279,7 @@ export const mounts: Product[] = [
   {
     id: 'mount-pinpad-bracket',
     name: 'Крепление для эквара на кронштейн',
+    kpName: 'Крепление для терминала оплаты',
     category: 'mount',
     company: 'inno',
     description: 'Премиальный кронштейн для крепления банковских терминалов',
@@ -286,6 +295,7 @@ export const peripherals: Product[] = [
   {
     id: 'peri-charger-65w',
     name: 'Блок питания 65W',
+    kpName: 'Блок питания 65W',
     category: 'peripheral',
     company: 'inno',
     description: 'Сетевое зарядное Baseus GaN5 Pro 65W Fast Charger 2 Type-C / 1 USB-A',
@@ -296,6 +306,7 @@ export const peripherals: Product[] = [
   {
     id: 'peri-cable-typec-2m',
     name: 'Кабель питания',
+    kpName: 'Кабель питания Type-C',
     category: 'peripheral',
     company: 'inno',
     description: 'Кабель Type-C - Type-C 240W, 2m, Baseus Tungsten Gold Fast Charging Data Cable',
@@ -306,6 +317,7 @@ export const peripherals: Product[] = [
   {
     id: 'peri-angle-adapter',
     name: 'Переходник угловой',
+    kpName: 'Переходник угловой Type-C',
     category: 'peripheral',
     company: 'inno',
     description: 'Переходник для Steam Deck (USB Type-C Male - Type-C Female), 140 Вт, 20 Гб/с, 4K, 60 Гц',
@@ -316,6 +328,7 @@ export const peripherals: Product[] = [
   {
     id: 'peri-hub-lan',
     name: 'Хаб многопортовый с LAN-входом',
+    kpName: 'Сетевой хаб USB-C с LAN',
     category: 'peripheral',
     company: 'inno',
     description: 'USB-Концентратор UGREEN CM512 Хаб USB-C 6-in-1 HUB, USB3.2, Type-C3.2, HDMI, RJ-45, PD100W',

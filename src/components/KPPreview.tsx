@@ -175,6 +175,44 @@ function EditableNumber({
   )
 }
 
+// --- Редактируемое название ---
+function EditableName({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(value)
+
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        type="text"
+        value={draft}
+        onChange={e => setDraft(e.target.value)}
+        onBlur={() => {
+          setEditing(false)
+          if (draft.trim()) onChange(draft.trim())
+        }}
+        onKeyDown={e => {
+          if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+          if (e.key === 'Escape') { setEditing(false); setDraft(value) }
+        }}
+        className="w-full bg-white/10 border border-orange-500/50 rounded px-2 py-1 text-white text-sm outline-none"
+      />
+    )
+  }
+
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); setEditing(true); setDraft(value) }}
+      className="opacity-0 group-hover:opacity-40 hover:!opacity-100 text-white/50 transition p-0.5 flex-shrink-0"
+      title="Редактировать название"
+    >
+      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+      </svg>
+    </button>
+  )
+}
+
 // --- Пересчёт ---
 function recalcItem(item: LineItem): LineItem {
   return { ...item, total: Math.round(item.unitPrice * item.qty * (1 - item.discount / 100)) }
@@ -259,6 +297,15 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
     })
   }, [])
 
+  // Переименовать позицию (свободный текст — не влияет на расчёт)
+  const updateName = useCallback((si: number, ii: number, name: string) => {
+    setSections(prev => {
+      const next = prev.map(s => ({ ...s, items: s.items.map(i => ({ ...i })) }))
+      next[si].items[ii].name = name
+      return next
+    })
+  }, [])
+
   const addSection = useCallback(() => {
     setSections(prev => [
       ...prev,
@@ -338,26 +385,29 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
 
                 return (
                   <tr key={ii} className="border-b border-white/5 group">
-                    {/* Название — клик открывает каталог или редактирование */}
+                    {/* Название — клик открывает каталог, карандаш — ручная правка */}
                     <td className="px-4 py-2 text-white/80 relative">
-                      <div
-                        onClick={() => {
-                          if (selectorOpen) {
-                            setOpenSelector(null)
-                          } else {
-                            setOpenSelector([si, ii])
-                          }
-                        }}
-                        className={`cursor-pointer hover:bg-white/10 rounded px-2 py-1 -mx-2 -my-1 transition flex items-center gap-2 ${
-                          selectorOpen ? 'bg-white/10' : ''
-                        }`}
-                      >
-                        <span className="truncate">{item.name}</span>
-                        {hasCatalog && (
-                          <svg className="w-3 h-3 text-white/30 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                          </svg>
-                        )}
+                      <div className="flex items-center gap-1">
+                        <div
+                          onClick={() => {
+                            if (selectorOpen) {
+                              setOpenSelector(null)
+                            } else {
+                              setOpenSelector([si, ii])
+                            }
+                          }}
+                          className={`cursor-pointer hover:bg-white/10 rounded px-2 py-1 -mx-2 -my-1 transition flex items-center gap-2 flex-1 min-w-0 ${
+                            selectorOpen ? 'bg-white/10' : ''
+                          }`}
+                        >
+                          <span className="truncate">{item.name}</span>
+                          {hasCatalog && (
+                            <svg className="w-3 h-3 text-white/30 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
+                          )}
+                        </div>
+                        <EditableName value={item.name} onChange={v => updateName(si, ii, v)} />
                       </div>
                       {selectorOpen && (
                         <ProductSelector

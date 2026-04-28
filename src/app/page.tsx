@@ -542,14 +542,6 @@ export default function Home() {
               />
             </Section>
 
-            {/* Загрузка номенклатуры */}
-            <Section title="Номенклатура">
-              <CatalogUpload onUpload={(data) => {
-                setCatalog(data)
-                console.log(`Каталог обновлён из Excel: ${data.length} товаров`)
-              }} />
-            </Section>
-
             {/* Кнопка */}
             <button
               onClick={handleGenerate}

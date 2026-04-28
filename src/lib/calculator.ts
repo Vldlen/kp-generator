@@ -73,7 +73,7 @@ export function calculateKP(req: ParsedRequest): KPResult {
     const mount = getProductById(mountId)
     if (mount) {
       equipItems.push({
-        name: mount.name,
+        name: mount.kpName || mount.name,
         category: 'mount',
         qty: req.devices,
         unitPrice: mount.sellPrice,
@@ -86,7 +86,7 @@ export function calculateKP(req: ParsedRequest): KPResult {
     const adapter = getProductById('mount-onkron-adapter')
     if (adapter) {
       equipItems.push({
-        name: adapter.name,
+        name: adapter.kpName || adapter.name,
         category: 'adapter',
         qty: req.devices,
         unitPrice: adapter.sellPrice,
@@ -95,11 +95,10 @@ export function calculateKP(req: ParsedRequest): KPResult {
       })
     }
 
-    // Периферия (без фискальника)
+    // Периферия
     for (const p of peripherals) {
-      if (p.id === 'peri-fiscal') continue
       equipItems.push({
-        name: p.name,
+        name: p.kpName || p.name,
         category: 'peripheral',
         qty: req.devices,
         unitPrice: p.sellPrice,
@@ -112,7 +111,7 @@ export function calculateKP(req: ParsedRequest): KPResult {
     const pinpad = getProductById('mount-pinpad-bracket')
     if (pinpad) {
       equipItems.push({
-        name: pinpad.name,
+        name: pinpad.kpName || pinpad.name,
         category: 'peripheral',
         qty: req.devices,
         unitPrice: pinpad.sellPrice,
