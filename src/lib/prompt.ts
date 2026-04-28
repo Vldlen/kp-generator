@@ -75,6 +75,7 @@ export interface ParsedRequest {
   kiosk_type: 'desk' | 'wall' | 'floor' | 'kiosk_pro' | null
   license_type: 'qr' | 'ecomm' | 'kiosk' | 'kiosk_pro' | 'findir' | 'bonda_bi' | null
   findir_tariff: string | null
+  selected_tablet_id: string | null  // ID планшета из каталога
   subscription_period: 'month' | 'quarter' | 'half_year' | 'year'
   need_implementation: boolean
   content_items: number

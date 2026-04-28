@@ -53,16 +53,18 @@ export function calculateKP(req: ParsedRequest): KPResult {
   if (req.devices > 0 && req.license_type === 'kiosk') {
     const equipItems: LineItem[] = []
 
-    // Планшет
-    const defaultTablet = tablets[0]
-    if (defaultTablet) {
+    // Планшет — выбранный менеджером или первый по умолчанию
+    const selectedTablet = req.selected_tablet_id
+      ? tablets.find(t => t.id === req.selected_tablet_id) || tablets[0]
+      : tablets[0]
+    if (selectedTablet) {
       equipItems.push({
-        name: defaultTablet.name,
+        name: selectedTablet.kpName || selectedTablet.name,
         category: 'tablet',
         qty: req.devices,
-        unitPrice: defaultTablet.sellPrice,
+        unitPrice: selectedTablet.sellPrice,
         discount: 0,
-        total: defaultTablet.sellPrice * req.devices,
+        total: selectedTablet.sellPrice * req.devices,
       })
     }
 

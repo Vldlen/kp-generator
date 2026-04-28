@@ -8,6 +8,7 @@ import {
   findirTariffs,
   periodMultiplier,
   allProducts,
+  tablets,
   type SubscriptionPeriod,
 } from '@/lib/catalog'
 import { fetchAllCatalog, type DBProduct } from '@/lib/supabase'
@@ -23,6 +24,7 @@ const defaultForm: ParsedRequest = {
   kiosk_type: 'desk',
   license_type: null,
   findir_tariff: null,
+  selected_tablet_id: null,
   subscription_period: 'year',
   need_implementation: false,
   content_items: 0,
@@ -65,16 +67,28 @@ export default function Home() {
   const [kp, setKP] = useState<KPResult | null>(null)
   const [catalog, setCatalog] = useState<DBProduct[]>(fallbackCatalog)
 
-  // Загружаем каталог из Supabase при старте
+  // Загружаем каталог: сначала Google Sheets (все листы), потом Supabase как fallback
   useEffect(() => {
-    fetchAllCatalog().then(data => {
-      if (data.length > 0) {
-        setCatalog(data)
-        console.log(`Каталог загружен из Supabase: ${data.length} товаров`)
-      } else {
-        console.log('Supabase пуст, используем fallback каталог')
-      }
-    })
+    fetchGoogleSheetProducts()
+      .then(products => {
+        if (products.length > 0) {
+          setCatalog(products)
+          console.log(`Каталог загружен из Google Sheets: ${products.length} товаров`)
+          return
+        }
+        throw new Error('Google Sheets пуст')
+      })
+      .catch(() => {
+        // Fallback на Supabase
+        fetchAllCatalog().then(data => {
+          if (data.length > 0) {
+            setCatalog(data)
+            console.log(`Каталог загружен из Supabase: ${data.length} товаров`)
+          } else {
+            console.log('Используем встроенный каталог')
+          }
+        })
+      })
   }, [])
 
   const update = <K extends keyof ParsedRequest>(key: K, value: ParsedRequest[K]) => {
@@ -87,6 +101,7 @@ export default function Home() {
           next.products = []
           next.devices = 0
           next.kiosk_type = null
+          next.selected_tablet_id = null
           next.license_type = 'findir'
           next.findir_tariff = 'Старт'
           next.need_implementation = false
@@ -109,6 +124,7 @@ export default function Home() {
           next.devices = 0
           next.kiosk_type = null
           next.products = []
+          next.selected_tablet_id = null
         }
         // Kiosk — планшетный комплект, дефолт настольный
         if (value === 'kiosk') {
@@ -272,6 +288,31 @@ export default function Home() {
                     <div>
                       <label className="text-sm text-white/40 block mb-1.5">Количество устройств</label>
                       <NumberInput value={form.devices} onChange={v => update('devices', v)} min={1} max={500} />
+                    </div>
+                  )}
+
+                  {/* Выбор планшета — для Kiosk */}
+                  {form.license_type === 'kiosk' && (
+                    <div>
+                      <label className="text-sm text-white/40 block mb-1.5">Планшет</label>
+                      <select
+                        value={form.selected_tablet_id || ''}
+                        onChange={e => update('selected_tablet_id', e.target.value || null)}
+                        className="w-full rounded-xl bg-white/5 border border-white/10 px-4 py-3 text-white focus:outline-none focus:border-orange-500/50 focus:ring-1 focus:ring-orange-500/25 appearance-none"
+                        style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23ffffff40' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 16px center' }}
+                      >
+                        <option value="" className="bg-[#1a1a2e]">Автоподбор (по умолчанию)</option>
+                        {tablets.map(t => (
+                          <option key={t.id} value={t.id} className="bg-[#1a1a2e]">
+                            {t.name} — {t.sellPrice.toLocaleString('ru-RU')} ₽ ({t.specs})
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-xs text-white/30 mt-1">
+                        В КП попадёт обезличенное название: &laquo;{
+                          (tablets.find(t => t.id === form.selected_tablet_id) || tablets[0])?.kpName || 'Планшет Android'
+                        }&raquo;
+                      </p>
                     </div>
                   )}
 
@@ -501,6 +542,14 @@ export default function Home() {
               />
             </Section>
 
+            {/* Загрузка номенклатуры */}
+            <Section title="Номенклатура">
+              <CatalogUpload onUpload={(data) => {
+                setCatalog(data)
+                console.log(`Каталог обновлён из Excel: ${data.length} товаров`)
+              }} />
+            </Section>
+
             {/* Кнопка */}
             <button
               onClick={handleGenerate}
@@ -573,6 +622,282 @@ function CheckCard({ active, onClick, title, desc }: {
       <div className="text-xs opacity-60 mt-0.5">{desc}</div>
     </button>
   )
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let xlsxCache: any = null
+async function loadXLSX() {
+  if (xlsxCache) return xlsxCache
+  // Загружаем SheetJS с CDN
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script')
+    script.src = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js'
+    script.onload = () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      xlsxCache = (window as any).XLSX
+      resolve(xlsxCache)
+    }
+    script.onerror = () => reject(new Error('Не удалось загрузить библиотеку xlsx'))
+    document.head.appendChild(script)
+  })
+}
+
+// URL Google Sheet для автосинка (CSV export)
+const GOOGLE_SHEET_ID = '1GGIOWoQmk7yLZjWSeY0wpFiKgrrYZ62TV2numdL7qXc'
+// Загружаем все листы из Google Sheet
+// Сначала получаем HTML чтобы узнать gid и названия листов,
+// потом скачиваем каждый лист как CSV
+async function fetchGoogleSheetProducts(): Promise<DBProduct[]> {
+  const products: DBProduct[] = []
+  let idx = 0
+
+  // Способ 1: пробуем загрузить как XLSX (содержит все листы сразу)
+  try {
+    const xlsxUrl = `https://docs.google.com/spreadsheets/d/${GOOGLE_SHEET_ID}/export?format=xlsx`
+    const resp = await fetch(xlsxUrl)
+    if (resp.ok) {
+      const XLSX = await loadXLSX()
+      const buf = await resp.arrayBuffer()
+      const wb = XLSX.read(buf, { type: 'array' })
+      for (const sheetName of wb.SheetNames) {
+        const ws = wb.Sheets[sheetName]
+        const rows: Record<string, unknown>[] = XLSX.utils.sheet_to_json(ws, { defval: '' })
+        const sheetCategory = sheetName.trim().toLowerCase()
+        for (const row of rows) {
+          const p = parseRowToProduct(row, idx, sheetCategory)
+          if (p) { products.push(p); idx++ }
+        }
+      }
+      if (products.length > 0) return products
+    }
+  } catch {
+    // Fallback на CSV
+  }
+
+  // Способ 2: CSV — пробуем gid 0..9
+  const sheetNames = ['планшеты', 'кронштейны', 'периферия', '', '', '', '', '', '', '']
+  for (let gid = 0; gid < 10; gid++) {
+    try {
+      const url = `https://docs.google.com/spreadsheets/d/${GOOGLE_SHEET_ID}/export?format=csv&gid=${gid}`
+      const resp = await fetch(url)
+      if (!resp.ok) break  // gid не существует — дальше не пробуем
+      const csvText = await resp.text()
+      if (!csvText.trim() || csvText.includes('<!DOCTYPE')) break
+      const rows = parseCSV(csvText)
+      for (const row of rows) {
+        const p = parseRowToProduct(row, idx, sheetNames[gid])
+        if (p) { products.push(p); idx++ }
+      }
+    } catch {
+      break
+    }
+  }
+
+  return products
+}
+
+function parseRowToProduct(row: Record<string, unknown>, index: number, sheetCategory?: string): DBProduct | null {
+  const name = String(row['Наименование'] || row['Название'] || row['name'] || row['Name'] || '').trim()
+  if (!name) return null
+
+  // Категория: из колонки, или из имени листа, или дефолт
+  const rawCategory = String(row['Категория'] || row['category'] || row['Category'] || sheetCategory || 'equipment').trim().toLowerCase()
+  const company = String(row['Компания'] || row['company'] || row['Company'] || 'inno').trim().toLowerCase()
+
+  // Цены: убираем "р.", пробелы, запятые — чтобы парсить "р.19 300" и "19300"
+  const parsePrice = (val: unknown): number => {
+    if (typeof val === 'number') return val
+    const cleaned = String(val).replace(/[р.₽\s]/g, '').replace(',', '.')
+    return Number(cleaned) || 0
+  }
+
+  const costPrice = parsePrice(row['Закупочная'] || row['Себестоимость'] || row['cost_price'] || row['Cost'] || 0)
+  const sellPrice = parsePrice(row['Продажная'] || row['Цена'] || row['sell_price'] || row['Price'] || 0)
+
+  // Маржа/рентабельность: из колонки или вычисляем
+  const rawMargin = String(row['Маржа'] || row['Рентабельность'] || row['margin'] || row['Margin'] || '').replace('%', '')
+  const margin = rawMargin
+    ? Number(rawMargin)
+    : (sellPrice > 0 && costPrice > 0 ? Math.round((1 - costPrice / sellPrice) * 100) : 0)
+
+  return {
+    id: String(row['ID'] || row['id'] || row['Артикул'] || `imported-${index}`),
+    name,
+    article: String(row['Артикул'] || row['article'] || '') || null,
+    category: mapCategory(rawCategory),
+    company: company as 'inno' | 'bonda',
+    description: String(row['Описание'] || row['description'] || '') || null,
+    specs: String(row['Характеристики'] || row['specs'] || '') || null,
+    cost_price: costPrice,
+    sell_price: sellPrice,
+    margin,
+    supplier: String(row['Поставщик'] || row['supplier'] || '') || null,
+    supplier_article: String(row['Артикул поставщика'] || row['supplier_article'] || '') || null,
+    unit: String(row['Единица'] || row['unit'] || 'шт'),
+    warranty: String(row['Гарантия'] || row['warranty'] || '') || null,
+    is_active: true,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }
+}
+
+function parseCSV(csvText: string): Record<string, unknown>[] {
+  const lines = csvText.split('\n').map(l => l.trim()).filter(Boolean)
+  if (lines.length < 2) return []
+
+  // Парсим заголовки (с учётом кавычек)
+  const parseCSVLine = (line: string): string[] => {
+    const result: string[] = []
+    let current = ''
+    let inQuotes = false
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i]
+      if (ch === '"') {
+        if (inQuotes && line[i + 1] === '"') { current += '"'; i++; }
+        else { inQuotes = !inQuotes }
+      } else if (ch === ',' && !inQuotes) {
+        result.push(current.trim())
+        current = ''
+      } else {
+        current += ch
+      }
+    }
+    result.push(current.trim())
+    return result
+  }
+
+  const headers = parseCSVLine(lines[0])
+  const rows: Record<string, unknown>[] = []
+  for (let i = 1; i < lines.length; i++) {
+    const values = parseCSVLine(lines[i])
+    const row: Record<string, unknown> = {}
+    headers.forEach((h, j) => { row[h] = values[j] || '' })
+    rows.push(row)
+  }
+  return rows
+}
+
+function CatalogUpload({ onUpload }: { onUpload: (data: DBProduct[]) => void }) {
+  const [status, setStatus] = useState<'idle' | 'parsing' | 'syncing' | 'done' | 'error'>('idle')
+  const [count, setCount] = useState(0)
+  const [errorMsg, setErrorMsg] = useState('')
+  const [lastSync, setLastSync] = useState<string | null>(null)
+
+  // Синхронизация из Google Sheets (все листы)
+  const handleGoogleSync = async () => {
+    setStatus('syncing')
+    setErrorMsg('')
+
+    try {
+      const products = await fetchGoogleSheetProducts()
+
+      if (products.length === 0) {
+        setStatus('error')
+        setErrorMsg('Таблица пуста, заголовки не распознаны, или нет доступа. Проверьте: Настройки доступа → Все, у кого есть ссылка → Читатель')
+        return
+      }
+
+      setCount(products.length)
+      setLastSync(new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }))
+      setStatus('done')
+      onUpload(products)
+    } catch (err) {
+      setStatus('error')
+      setErrorMsg(err instanceof Error ? err.message : 'Ошибка синхронизации')
+    }
+  }
+
+  // Загрузка из Excel файла
+  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setStatus('parsing')
+    setErrorMsg('')
+
+    try {
+      const XLSX = await loadXLSX()
+      const buf = await file.arrayBuffer()
+      const wb = XLSX.read(buf, { type: 'array' })
+
+      const products: DBProduct[] = []
+      let idx = 0
+      for (const sheetName of wb.SheetNames) {
+        const ws = wb.Sheets[sheetName]
+        const rows: Record<string, unknown>[] = XLSX.utils.sheet_to_json(ws, { defval: '' })
+        // Имя листа = категория (Планшеты, Кронштейны, Периферия)
+        const sheetCategory = sheetName.trim().toLowerCase()
+        for (const row of rows) {
+          const p = parseRowToProduct(row, idx, sheetCategory)
+          if (p) { products.push(p); idx++ }
+        }
+      }
+
+      if (products.length === 0) {
+        setStatus('error')
+        setErrorMsg('Не найдено ни одной строки с данными.')
+        return
+      }
+
+      setCount(products.length)
+      setLastSync(null)
+      setStatus('done')
+      onUpload(products)
+    } catch (err) {
+      setStatus('error')
+      setErrorMsg(err instanceof Error ? err.message : 'Ошибка парсинга файла')
+    }
+    e.target.value = ''
+  }
+
+  return (
+    <div className="space-y-3">
+      {/* Google Sheets sync */}
+      <button
+        onClick={handleGoogleSync}
+        disabled={status === 'syncing'}
+        className="w-full rounded-xl bg-white/5 border border-white/10 px-4 py-3 text-center hover:border-green-500/40 hover:bg-green-500/5 transition disabled:opacity-50 group"
+      >
+        <span className="text-sm text-white/60 group-hover:text-green-400 flex items-center justify-center gap-2">
+          <svg className={`w-4 h-4 ${status === 'syncing' ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          {status === 'syncing' ? 'Синхронизация...' : 'Синхронизировать из Google Sheets'}
+        </span>
+      </button>
+
+      {/* Или загрузка файлом */}
+      <label className="flex items-center gap-3 cursor-pointer group">
+        <input type="file" accept=".xlsx,.xls" onChange={handleFile} className="hidden" />
+        <div className="flex-1 rounded-xl bg-white/5 border border-dashed border-white/20 px-4 py-2.5 text-center group-hover:border-orange-500/40 group-hover:bg-white/10 transition">
+          <span className="text-xs text-white/40 group-hover:text-white/60">
+            {status === 'parsing' ? 'Обработка...' : 'или загрузить .xlsx файлом'}
+          </span>
+        </div>
+      </label>
+
+      {/* Статус */}
+      {status === 'done' && (
+        <p className="text-xs text-green-400/70">
+          Загружено {count} позиций{lastSync ? ` (синхронизация в ${lastSync})` : ''}
+        </p>
+      )}
+      {status === 'error' && (
+        <p className="text-xs text-red-400/70">{errorMsg}</p>
+      )}
+    </div>
+  )
+}
+
+function mapCategory(cat: string): string {
+  const map: Record<string, string> = {
+    'планшет': 'tablet', 'tablet': 'tablet', 'планшеты': 'tablet',
+    'крепление': 'mount', 'кронштейн': 'mount', 'кронштейны': 'mount', 'mount': 'mount',
+    'периферия': 'peripheral', 'peripheral': 'peripheral',
+    'pos': 'pos_terminal', 'pos_terminal': 'pos_terminal', 'терминал': 'pos_terminal', 'моноблок': 'pos_terminal', 'киоски': 'pos_terminal', 'киоск': 'pos_terminal',
+    'оборудование': 'equipment', 'equipment': 'equipment',
+  }
+  return map[cat] || cat
 }
 
 function NumberInput({ value, onChange, min, max }: {
