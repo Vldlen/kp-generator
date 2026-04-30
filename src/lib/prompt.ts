@@ -76,9 +76,15 @@ export interface ParsedRequest {
   license_type: 'qr' | 'ecomm' | 'kiosk' | 'kiosk_pro' | 'findir' | 'bonda_bi' | null
   findir_tariff: string | null
   selected_tablet_id: string | null  // ID планшета из каталога
+  selected_kiosk_id: string | null  // ID киоска из каталога (for kiosk_pro)
   subscription_period: 'month' | 'quarter' | 'half_year' | 'year'
   need_implementation: boolean
   content_items: number
   payment_type: 'prepay100' | 'installment3'
   notes: string
+  // Internal fields for calculator (populated by page.tsx)
+  _kiosk_name?: string
+  _kiosk_price?: number
+  _kiosk_mount_name?: string
+  _kiosk_mount_price?: number
 }

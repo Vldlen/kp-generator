@@ -25,6 +25,7 @@ export interface DBProduct {
   is_active: boolean
   created_at: string
   updated_at: string
+  group?: string | null  // Группа (for kiosks)
 }
 
 export interface DBCompatibilityHint {

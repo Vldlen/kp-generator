@@ -135,15 +135,39 @@ export function calculateKP(req: ParsedRequest): KPResult {
     const equipItems: LineItem[] = []
 
     // POS-терминал (готовый киоск)
-    const defaultPOS = posEquipment[0]
-    if (defaultPOS) {
+    if (req._kiosk_name && req._kiosk_price) {
       equipItems.push({
-        name: defaultPOS.name,
-        category: 'pos_terminal',
+        name: req._kiosk_name,
+        category: 'kiosk',
         qty: req.devices,
-        unitPrice: defaultPOS.sellPrice,
+        unitPrice: req._kiosk_price,
         discount: 0,
-        total: defaultPOS.sellPrice * req.devices,
+        total: req._kiosk_price * req.devices,
+      })
+    } else {
+      // Fallback to old posEquipment[0] if no selected kiosk
+      const defaultPOS = posEquipment[0]
+      if (defaultPOS) {
+        equipItems.push({
+          name: defaultPOS.name,
+          category: 'pos_terminal',
+          qty: req.devices,
+          unitPrice: defaultPOS.sellPrice,
+          discount: 0,
+          total: defaultPOS.sellPrice * req.devices,
+        })
+      }
+    }
+
+    // Add mount if non-default
+    if (req._kiosk_mount_name && req._kiosk_mount_price && req._kiosk_mount_price > 0) {
+      equipItems.push({
+        name: req._kiosk_mount_name,
+        category: 'mount',
+        qty: req.devices,
+        unitPrice: req._kiosk_mount_price,
+        discount: 0,
+        total: req._kiosk_mount_price * req.devices,
       })
     }
 

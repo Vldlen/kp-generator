@@ -12,6 +12,18 @@ const SLIDE_COUNTS: Record<string, { before: number; after: number }> = {
   kiosk_pro: { before: 4, after: 2 },
 }
 import { generateKPPptx } from '@/lib/generatePptx'
+import { tablets, mounts, peripherals } from '@/lib/catalog'
+
+// Маппинг реальных имён → обезличенные для КП
+const kpNameMap: Record<string, string> = {}
+for (const arr of [tablets, mounts, peripherals]) {
+  for (const p of arr) {
+    if (p.kpName) kpNameMap[p.name] = p.kpName
+  }
+}
+function getKpName(realName: string): string {
+  return kpNameMap[realName] || realName
+}
 
 // Маппинг категорий на русские названия
 const CATEGORY_LABELS: Record<string, string> = {
@@ -238,7 +250,7 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
 
   const grandTotal = sections.reduce((sum, s) => sum + s.subtotal, 0)
 
-  // Замена позиции на продукт из каталога
+  // Замена позиции на продукт из каталога (имя обезличивается автоматически)
   const replaceWithProduct = useCallback((si: number, ii: number, product: DBProduct) => {
     setSections(prev => {
       const next = prev.map(s => ({ ...s, items: s.items.map(i => ({ ...i })) }))
@@ -246,7 +258,7 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
       const oldQty = item.qty
       next[si].items[ii] = recalcItem({
         ...item,
-        name: product.name,
+        name: getKpName(product.name),
         unitPrice: product.sell_price,
         qty: oldQty,
       })

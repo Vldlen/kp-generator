@@ -25,6 +25,7 @@ const defaultForm: ParsedRequest = {
   license_type: null,
   findir_tariff: null,
   selected_tablet_id: null,
+  selected_kiosk_id: null,
   subscription_period: 'year',
   need_implementation: false,
   content_items: 0,
@@ -59,6 +60,7 @@ const fallbackCatalog: DBProduct[] = allProducts.map(p => ({
   is_active: true,
   created_at: '',
   updated_at: '',
+  group: null,
 }))
 
 export default function Home() {
@@ -125,16 +127,19 @@ export default function Home() {
           next.kiosk_type = null
           next.products = []
           next.selected_tablet_id = null
+          next.selected_kiosk_id = null
         }
         // Kiosk — планшетный комплект, дефолт настольный
         if (value === 'kiosk') {
           next.devices = Math.max(1, next.devices)
           next.kiosk_type = 'desk'
+          next.selected_kiosk_id = null
         }
         // Kiosk PRO — готовый киоск, дефолт настольный
         if (value === 'kiosk_pro') {
           next.devices = Math.max(1, next.devices)
           next.kiosk_type = 'desk'
+          next.selected_kiosk_id = null
         }
       }
 
@@ -156,9 +161,60 @@ export default function Home() {
 
   const handleGenerate = () => {
     if (!form.client_name.trim()) return
-    const result = calculateKP(form)
+
+    // Enrich form with kiosk data for calculator
+    const enrichedForm = { ...form }
+    if (form.license_type === 'kiosk_pro' && form.selected_kiosk_id) {
+      const kiosk = catalog.find(p => p.id === form.selected_kiosk_id)
+      if (kiosk) {
+        enrichedForm._kiosk_name = kiosk.name
+        enrichedForm._kiosk_price = kiosk.sell_price
+
+        // Find mount if non-default
+        const kioskGroup = kiosk.group
+        if (kioskGroup && form.kiosk_type) {
+          const mountItems = catalog.filter(p =>
+            p.category === 'kiosk_mount' &&
+            p.group === kioskGroup
+          )
+
+          // Map mount type to find matching mount
+          const mountTypeMap: Record<string, string> = {
+            'desk': 'настольн',
+            'wall': 'настенн',
+            'floor': 'напольн',
+          }
+          const searchTerm = mountTypeMap[form.kiosk_type]
+
+          if (searchTerm) {
+            const selectedMount = mountItems.find(m =>
+              m.name.toLowerCase().includes(searchTerm.toLowerCase())
+            )
+
+            if (selectedMount && isNonDefaultMount(kioskGroup, form.kiosk_type)) {
+              enrichedForm._kiosk_mount_name = selectedMount.name
+              enrichedForm._kiosk_mount_price = selectedMount.sell_price
+            }
+          }
+        }
+      }
+    }
+
+    const result = calculateKP(enrichedForm)
     setKP(result)
     setStep('preview')
+  }
+
+  // Helper to check if mount is non-default for a kiosk group
+  const isNonDefaultMount = (group: string, mountType: string): boolean => {
+    // Default mount mapping based on group name
+    if (group.includes('Sam4s') || group.includes('T-215') || group.includes('R-156')) {
+      return mountType !== 'desk'  // default is desk
+    }
+    if (group.includes('SuperKiosk') || group.includes('L-240') || group.includes('L-320')) {
+      return mountType !== 'wall'  // default is wall
+    }
+    return false
   }
 
   const handleBack = () => {
@@ -341,36 +397,112 @@ export default function Home() {
                     </div>
                   )}
 
-                  {/* Тип крепления — для Kiosk PRO (настольный/настенный/напольный) */}
+                  {/* Выбор киоска — для Kiosk PRO */}
                   {form.license_type === 'kiosk_pro' && (
                     <div>
+                      <label className="text-sm text-white/40 block mb-1.5">Модель киоска</label>
+                      <select
+                        value={form.selected_kiosk_id || ''}
+                        onChange={e => update('selected_kiosk_id', e.target.value || null)}
+                        className="w-full rounded-xl bg-white/5 border border-white/10 px-4 py-3 text-white focus:outline-none focus:border-orange-500/50 focus:ring-1 focus:ring-orange-500/25 appearance-none"
+                        style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23ffffff40' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 16px center' }}
+                      >
+                        <option value="" className="bg-[#1a1a2e]">Выбрать модель киоска...</option>
+                        {catalog
+                          .filter(p =>
+                            p.category === 'kiosk' &&
+                            !p.name.toLowerCase().includes('крепление') &&
+                            !p.name.toLowerCase().includes('принтер') &&
+                            !p.name.toLowerCase().includes('сканер') &&
+                            !p.name.toLowerCase().includes('кkt') &&
+                            !p.name.toLowerCase().includes('фискальный')
+                          )
+                          .map(k => (
+                            <option key={k.id} value={k.id} className="bg-[#1a1a2e]">
+                              {k.name} — {k.sell_price.toLocaleString('ru-RU')} ₽
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {/* Тип крепления — для Kiosk PRO (динамический) */}
+                  {form.license_type === 'kiosk_pro' && form.selected_kiosk_id && (
+                    <div>
                       <label className="text-sm text-white/40 block mb-1.5">Тип крепления</label>
-                      <div className="grid grid-cols-3 gap-2">
-                        <RadioCard
-                          active={form.kiosk_type === 'desk'}
-                          color="orange"
-                          onClick={() => update('kiosk_type', 'desk')}
-                          title="Настольный"
-                          desc=""
-                          small
-                        />
-                        <RadioCard
-                          active={form.kiosk_type === 'wall'}
-                          color="orange"
-                          onClick={() => update('kiosk_type', 'wall')}
-                          title="Настенный"
-                          desc=""
-                          small
-                        />
-                        <RadioCard
-                          active={form.kiosk_type === 'floor'}
-                          color="orange"
-                          onClick={() => update('kiosk_type', 'floor')}
-                          title="Напольный"
-                          desc=""
-                          small
-                        />
-                      </div>
+                      {(() => {
+                        const kiosk = catalog.find(p => p.id === form.selected_kiosk_id)
+                        if (!kiosk || !kiosk.group) {
+                          return <p className="text-xs text-white/30">Для этого киоска опции крепления не предусмотрены</p>
+                        }
+
+                        const mountOptions = catalog.filter(p =>
+                          p.category === 'kiosk_mount' &&
+                          p.group === kiosk.group
+                        )
+
+                        // Определяем дефолтный тип крепления по группе
+                        const getDefault = (): 'desk' | 'wall' | 'floor' => {
+                          if (!kiosk.group) return 'desk'
+                          const g = kiosk.group.toLowerCase()
+                          if (g.includes('l-240') || g.includes('l-320') || g.includes('slim') || g.includes('настенн')) return 'wall'
+                          return 'desk'
+                        }
+                        const defaultMount = getDefault()
+
+                        // Доступные опции: дефолтная + те, что есть в каталоге
+                        const hasDesk = defaultMount === 'desk' || mountOptions.some(m => m.name.toLowerCase().includes('настольн'))
+                        const hasWall = defaultMount === 'wall' || mountOptions.some(m => m.name.toLowerCase().includes('настенн'))
+                        const hasFloor = mountOptions.some(m => m.name.toLowerCase().includes('напольн'))
+
+                        // Если только дефолтный тип и нет альтернатив — не показываем селектор
+                        const totalOptions = [hasDesk, hasWall, hasFloor].filter(Boolean).length
+                        if (totalOptions <= 1) {
+                          if (!form.kiosk_type || form.kiosk_type !== defaultMount) {
+                            update('kiosk_type', defaultMount)
+                          }
+                          return <p className="text-xs text-white/30">Крепление: {defaultMount === 'desk' ? 'настольное' : defaultMount === 'wall' ? 'настенное' : 'напольное'} (входит в комплект)</p>
+                        }
+
+                        if (!form.kiosk_type) {
+                          update('kiosk_type', defaultMount)
+                        }
+
+                        return (
+                          <div className="grid grid-cols-3 gap-2">
+                            {hasDesk && (
+                              <RadioCard
+                                active={form.kiosk_type === 'desk'}
+                                color="orange"
+                                onClick={() => update('kiosk_type', 'desk')}
+                                title="Настольный"
+                                desc={defaultMount === 'desk' ? 'в комплекте' : ''}
+                                small
+                              />
+                            )}
+                            {hasWall && (
+                              <RadioCard
+                                active={form.kiosk_type === 'wall'}
+                                color="orange"
+                                onClick={() => update('kiosk_type', 'wall')}
+                                title="Настенный"
+                                desc={defaultMount === 'wall' ? 'в комплекте' : ''}
+                                small
+                              />
+                            )}
+                            {hasFloor && (
+                              <RadioCard
+                                active={form.kiosk_type === 'floor'}
+                                color="orange"
+                                onClick={() => update('kiosk_type', 'floor')}
+                                title="Напольный"
+                                desc=""
+                                small
+                              />
+                            )}
+                          </div>
+                        )
+                      })()}
                     </div>
                   )}
 
@@ -382,7 +514,7 @@ export default function Home() {
                   )}
                   {form.license_type === 'kiosk_pro' && (
                     <div className="rounded-lg bg-orange-500/5 border border-orange-500/10 px-4 py-2 text-xs text-orange-300/70">
-                      Готовый киоск — периферия не нужна. Модель можно заменить в превью КП.
+                      Готовый киоск — выберите модель и тип крепления из каталога. Периферия не требуется.
                     </div>
                   )}
                   {(form.license_type === 'qr' || form.license_type === 'ecomm') && (
@@ -699,8 +831,17 @@ function parseRowToProduct(row: Record<string, unknown>, index: number, sheetCat
   if (!name) return null
 
   // Категория: из колонки, или из имени листа, или дефолт
-  const rawCategory = String(row['Категория'] || row['category'] || row['Category'] || sheetCategory || 'equipment').trim().toLowerCase()
+  let rawCategory = String(row['Категория'] || row['category'] || row['Category'] || sheetCategory || 'equipment').trim().toLowerCase()
   const company = String(row['Компания'] || row['company'] || row['Company'] || 'inno').trim().toLowerCase()
+
+  // Внутри листа «Киоски» — крепления, принтеры, сканеры, ККТ получают свою категорию
+  if (rawCategory === 'киоски' || rawCategory === 'киоск') {
+    const nameLower = name.toLowerCase()
+    if (nameLower.includes('крепление')) rawCategory = '_kiosk_mount'
+    else if (nameLower.includes('принтер')) rawCategory = '_kiosk_option'
+    else if (nameLower.includes('сканер')) rawCategory = '_kiosk_option'
+    else if (nameLower.includes('ккт') || nameLower.includes('фискальн')) rawCategory = '_kiosk_option'
+  }
 
   // Цены: убираем "р.", пробелы, запятые — чтобы парсить "р.19 300" и "19300"
   const parsePrice = (val: unknown): number => {
@@ -736,6 +877,7 @@ function parseRowToProduct(row: Record<string, unknown>, index: number, sheetCat
     is_active: true,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
+    group: String(row['Группа'] || row['group'] || '').trim() || null,
   }
 }
 
@@ -935,8 +1077,11 @@ function mapCategory(cat: string): string {
   const map: Record<string, string> = {
     'планшет': 'tablet', 'tablet': 'tablet', 'планшеты': 'tablet',
     'крепление': 'mount', 'кронштейн': 'mount', 'кронштейны': 'mount', 'mount': 'mount',
+    '_kiosk_mount': 'kiosk_mount', // крепления из листа «Киоски»
+    '_kiosk_option': 'kiosk_option', // принтеры/сканеры/ККТ из листа «Киоски»
     'периферия': 'peripheral', 'peripheral': 'peripheral',
-    'pos': 'pos_terminal', 'pos_terminal': 'pos_terminal', 'терминал': 'pos_terminal', 'моноблок': 'pos_terminal', 'киоски': 'pos_terminal', 'киоск': 'pos_terminal',
+    'киоски': 'kiosk', 'киоск': 'kiosk',
+    'pos': 'pos_terminal', 'pos_terminal': 'pos_terminal', 'терминал': 'pos_terminal', 'моноблок': 'pos_terminal',
     'оборудование': 'equipment', 'equipment': 'equipment',
   }
   return map[cat] || cat
