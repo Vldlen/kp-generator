@@ -26,6 +26,7 @@ export interface DBProduct {
   created_at: string
   updated_at: string
   group?: string | null  // Группа (for kiosks)
+  image_url?: string | null  // URL to product image
 }
 
 export interface DBCompatibilityHint {

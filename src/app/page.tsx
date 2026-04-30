@@ -31,6 +31,8 @@ const defaultForm: ParsedRequest = {
   content_items: 0,
   payment_type: 'prepay100',
   notes: '',
+  need_kkt: false,
+  need_fn: false,
 }
 
 // Маппинг старых категорий catalog.ts → новые
@@ -61,6 +63,7 @@ const fallbackCatalog: DBProduct[] = allProducts.map(p => ({
   created_at: '',
   updated_at: '',
   group: null,
+  image_url: null,
 }))
 
 export default function Home() {
@@ -128,18 +131,24 @@ export default function Home() {
           next.products = []
           next.selected_tablet_id = null
           next.selected_kiosk_id = null
+          next.need_kkt = false
+          next.need_fn = false
         }
         // Kiosk — планшетный комплект, дефолт настольный
         if (value === 'kiosk') {
           next.devices = Math.max(1, next.devices)
           next.kiosk_type = 'desk'
           next.selected_kiosk_id = null
+          next.need_kkt = false
+          next.need_fn = false
         }
         // Kiosk PRO — готовый киоск, дефолт настольный
         if (value === 'kiosk_pro') {
           next.devices = Math.max(1, next.devices)
           next.kiosk_type = 'desk'
           next.selected_kiosk_id = null
+          next.need_kkt = false
+          next.need_fn = false
         }
       }
 
@@ -197,6 +206,18 @@ export default function Home() {
             }
           }
         }
+      }
+
+      // Add ККТ price if selected
+      if (form.need_kkt) {
+        const kkt = catalog.find(p => p.name.includes('Атол 42'))
+        if (kkt) enrichedForm._kkt_price = kkt.sell_price
+      }
+
+      // Add ФН price if selected
+      if (form.need_fn) {
+        const fn = catalog.find(p => p.name.includes('Фискальный накопитель'))
+        if (fn) enrichedForm._fn_price = fn.sell_price
       }
     }
 
@@ -397,32 +418,47 @@ export default function Home() {
                     </div>
                   )}
 
-                  {/* Выбор киоска — для Kiosk PRO */}
+                  {/* Выбор киоска — для Kiosk PRO (карточки) */}
                   {form.license_type === 'kiosk_pro' && (
                     <div>
-                      <label className="text-sm text-white/40 block mb-1.5">Модель киоска</label>
-                      <select
-                        value={form.selected_kiosk_id || ''}
-                        onChange={e => update('selected_kiosk_id', e.target.value || null)}
-                        className="w-full rounded-xl bg-white/5 border border-white/10 px-4 py-3 text-white focus:outline-none focus:border-orange-500/50 focus:ring-1 focus:ring-orange-500/25 appearance-none"
-                        style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23ffffff40' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 16px center' }}
-                      >
-                        <option value="" className="bg-[#1a1a2e]">Выбрать модель киоска...</option>
+                      <label className="text-sm text-white/40 block mb-2">Модель киоска</label>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                         {catalog
                           .filter(p =>
                             p.category === 'kiosk' &&
                             !p.name.toLowerCase().includes('крепление') &&
                             !p.name.toLowerCase().includes('принтер') &&
                             !p.name.toLowerCase().includes('сканер') &&
-                            !p.name.toLowerCase().includes('кkt') &&
-                            !p.name.toLowerCase().includes('фискальный')
+                            !p.name.toLowerCase().includes('ккт') &&
+                            !p.name.toLowerCase().includes('фискальный') &&
+                            p.sell_price > 0
                           )
                           .map(k => (
-                            <option key={k.id} value={k.id} className="bg-[#1a1a2e]">
-                              {k.name} — {k.sell_price.toLocaleString('ru-RU')} ₽
-                            </option>
+                            <button
+                              key={k.id}
+                              onClick={() => update('selected_kiosk_id', k.id)}
+                              className={`rounded-xl border text-left transition-all overflow-hidden ${
+                                form.selected_kiosk_id === k.id
+                                  ? 'border-orange-500/60 bg-orange-500/10 ring-1 ring-orange-500/25'
+                                  : 'border-white/10 bg-white/5 hover:bg-white/10'
+                              }`}
+                            >
+                              <div className="w-full aspect-square bg-white/5 flex items-center justify-center overflow-hidden">
+                                {k.image_url ? (
+                                  <img src={k.image_url} alt={k.name} className="w-full h-full object-contain p-2" />
+                                ) : (
+                                  <svg className="w-12 h-12 text-white/20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                  </svg>
+                                )}
+                              </div>
+                              <div className="px-3 py-2">
+                                <div className="text-xs font-medium text-white/80 leading-tight">{k.name}</div>
+                                <div className="text-xs text-white/40 mt-1">{k.sell_price.toLocaleString('ru-RU')} ₽</div>
+                              </div>
+                            </button>
                           ))}
-                      </select>
+                      </div>
                     </div>
                   )}
 
@@ -503,6 +539,65 @@ export default function Home() {
                           </div>
                         )
                       })()}
+                    </div>
+                  )}
+
+                  {/* ККТ и ФН checkboxes — для Kiosk PRO */}
+                  {form.license_type === 'kiosk_pro' && form.selected_kiosk_id && (
+                    <div className="space-y-2">
+                      <label className="text-sm text-white/40 block">Дополнительно</label>
+                      {/* ККТ */}
+                      <label className="flex items-center gap-3 cursor-pointer group">
+                        <div
+                          onClick={() => update('need_kkt', !form.need_kkt)}
+                          className={`w-5 h-5 rounded border flex items-center justify-center transition ${
+                            form.need_kkt
+                              ? 'bg-orange-500 border-orange-500'
+                              : 'border-white/20 group-hover:border-white/40'
+                          }`}
+                        >
+                          {form.need_kkt && (
+                            <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                          )}
+                        </div>
+                        <div onClick={() => update('need_kkt', !form.need_kkt)}>
+                          <span className="text-white/80 text-sm">ККТ «Атол 42 ФА»</span>
+                          <span className="text-white/30 text-xs ml-2">
+                            {(() => {
+                              const kkt = catalog.find(p => p.name.includes('Атол 42'))
+                              return kkt ? `${kkt.sell_price.toLocaleString('ru-RU')} ₽` : ''
+                            })()}
+                          </span>
+                        </div>
+                      </label>
+                      {/* ФН */}
+                      <label className="flex items-center gap-3 cursor-pointer group">
+                        <div
+                          onClick={() => update('need_fn', !form.need_fn)}
+                          className={`w-5 h-5 rounded border flex items-center justify-center transition ${
+                            form.need_fn
+                              ? 'bg-orange-500 border-orange-500'
+                              : 'border-white/20 group-hover:border-white/40'
+                          }`}
+                        >
+                          {form.need_fn && (
+                            <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                          )}
+                        </div>
+                        <div onClick={() => update('need_fn', !form.need_fn)}>
+                          <span className="text-white/80 text-sm">Фискальный накопитель ФН 15</span>
+                          <span className="text-white/30 text-xs ml-2">
+                            {(() => {
+                              const fn = catalog.find(p => p.name.includes('Фискальный накопитель'))
+                              return fn ? `${fn.sell_price.toLocaleString('ru-RU')} ₽` : ''
+                            })()}
+                          </span>
+                        </div>
+                      </label>
                     </div>
                   )}
 
@@ -878,6 +973,7 @@ function parseRowToProduct(row: Record<string, unknown>, index: number, sheetCat
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
     group: String(row['Группа'] || row['group'] || '').trim() || null,
+    image_url: String(row['Фото'] || row['photo'] || row['image'] || '').trim() || null,
   }
 }
 

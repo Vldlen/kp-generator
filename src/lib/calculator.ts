@@ -171,6 +171,30 @@ export function calculateKP(req: ParsedRequest): KPResult {
       })
     }
 
+    // Add ККТ if selected
+    if (req.need_kkt && req._kkt_price) {
+      equipItems.push({
+        name: 'ККТ «Атол 42 ФА»',
+        category: 'kiosk_option',
+        qty: req.devices,
+        unitPrice: req._kkt_price,
+        discount: 0,
+        total: req._kkt_price * req.devices,
+      })
+    }
+
+    // Add ФН if selected
+    if (req.need_fn && req._fn_price) {
+      equipItems.push({
+        name: 'Фискальный накопитель ФН 15',
+        category: 'kiosk_option',
+        qty: req.devices,
+        unitPrice: req._fn_price,
+        discount: 0,
+        total: req._fn_price * req.devices,
+      })
+    }
+
     if (equipItems.length > 0) {
       const subtotal = equipItems.reduce((sum, i) => sum + i.total, 0)
       sections.push({
