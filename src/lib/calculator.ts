@@ -171,28 +171,18 @@ export function calculateKP(req: ParsedRequest): KPResult {
       })
     }
 
-    // Add ККТ if selected
-    if (req.need_kkt && req._kkt_price) {
-      equipItems.push({
-        name: 'ККТ «Атол 42 ФА»',
-        category: 'kiosk_option',
-        qty: req.devices,
-        unitPrice: req._kkt_price,
-        discount: 0,
-        total: req._kkt_price * req.devices,
-      })
-    }
-
-    // Add ФН if selected
-    if (req.need_fn && req._fn_price) {
-      equipItems.push({
-        name: 'Фискальный накопитель ФН 15',
-        category: 'kiosk_option',
-        qty: req.devices,
-        unitPrice: req._fn_price,
-        discount: 0,
-        total: req._fn_price * req.devices,
-      })
+    // Add selected kiosk options (ККТ, ФН, принтеры, сканеры и т.д.)
+    if (req._kiosk_options_data && req._kiosk_options_data.length > 0) {
+      for (const opt of req._kiosk_options_data) {
+        equipItems.push({
+          name: opt.name,
+          category: 'kiosk_option',
+          qty: req.devices,
+          unitPrice: opt.price,
+          discount: 0,
+          total: opt.price * req.devices,
+        })
+      }
     }
 
     if (equipItems.length > 0) {

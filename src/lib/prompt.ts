@@ -82,13 +82,11 @@ export interface ParsedRequest {
   content_items: number
   payment_type: 'prepay100' | 'installment3'
   notes: string
-  need_kkt: boolean  // ККТ "Атол 42 ФА" for kiosk_pro
-  need_fn: boolean  // Фискальный накопитель ФН 15 for kiosk_pro
+  selected_kiosk_options: string[]  // IDs опций из каталога (ККТ, ФН, принтеры, сканеры и т.д.)
   // Internal fields for calculator (populated by page.tsx)
   _kiosk_name?: string
   _kiosk_price?: number
   _kiosk_mount_name?: string
   _kiosk_mount_price?: number
-  _kkt_price?: number
-  _fn_price?: number
+  _kiosk_options_data?: Array<{ name: string; price: number }>
 }
