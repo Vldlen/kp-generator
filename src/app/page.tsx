@@ -201,7 +201,7 @@ export default function Home() {
               m.name.toLowerCase().includes(searchTerm.toLowerCase())
             )
 
-            if (selectedMount && isNonDefaultMount(kioskGroup, form.kiosk_type)) {
+            if (selectedMount && isNonDefaultMount(kiosk, form.kiosk_type)) {
               enrichedForm._kiosk_mount_name = selectedMount.name
               enrichedForm._kiosk_mount_price = selectedMount.sell_price
             }
@@ -226,15 +226,21 @@ export default function Home() {
   }
 
   // Helper to check if mount is non-default for a kiosk group
-  const isNonDefaultMount = (group: string, mountType: string): boolean => {
-    // Default mount mapping based on group name
-    if (group.includes('Sam4s') || group.includes('T-215') || group.includes('R-156')) {
-      return mountType !== 'desk'  // default is desk
+  const isNonDefaultMount = (kioskItem: DBProduct, mountType: string): boolean => {
+    const group = kioskItem.group || ''
+    const name = kioskItem.name.toLowerCase()
+    const g = group.toLowerCase()
+
+    // Напольные киоски: «Киоск самообслуживания» (МС 24, МС 32)
+    if (name.includes('киоск самообслуживания') || g.includes('мс 24') || g.includes('мс 32') || g.includes('mc 24') || g.includes('mc 32')) {
+      return mountType !== 'floor'
     }
-    if (group.includes('SuperKiosk') || group.includes('L-240') || group.includes('L-320')) {
-      return mountType !== 'wall'  // default is wall
+    // Настенные: L-240, L-320, Slim
+    if (g.includes('l-240') || g.includes('l-320') || g.includes('slim') || name.includes('настенн')) {
+      return mountType !== 'wall'
     }
-    return false
+    // Настольные: Sam4s Astra, Mini и т.д.
+    return mountType !== 'desk'
   }
 
   const handleBack = () => {
@@ -476,11 +482,15 @@ export default function Home() {
                           p.group === kiosk.group
                         )
 
-                        // Определяем дефолтный тип крепления по группе
+                        // Определяем дефолтный тип крепления по группе и названию
                         const getDefault = (): 'desk' | 'wall' | 'floor' => {
                           if (!kiosk.group) return 'desk'
                           const g = kiosk.group.toLowerCase()
-                          if (g.includes('l-240') || g.includes('l-320') || g.includes('slim') || g.includes('настенн')) return 'wall'
+                          const n = kiosk.name.toLowerCase()
+                          // Настенные: L-240, L-320, Slim, «настенная» в названии
+                          if (g.includes('l-240') || g.includes('l-320') || g.includes('slim') || n.includes('настенн')) return 'wall'
+                          // Напольные: «киоск самообслуживания» (МС 24, МС 32 и т.д.)
+                          if (n.includes('киоск самообслуживания') || g.includes('мс 24') || g.includes('мс 32') || g.includes('mc 24') || g.includes('mc 32')) return 'floor'
                           return 'desk'
                         }
                         const defaultMount = getDefault()
