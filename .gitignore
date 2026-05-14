@@ -6,3 +6,12 @@ out/
 *.tsbuildinfo
 next-env.d.ts
 .DS_Store
+
+# Vercel — orgId/projectId, не должны быть в репо
+.vercel/
+
+# Deploy-артефакты
+*.tar.gz
+
+# Локальные тестовые артефакты
+_misc/

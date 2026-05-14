@@ -77,7 +77,6 @@ export default function Home() {
       .then(products => {
         if (products.length > 0) {
           setCatalog(products)
-          console.log(`Каталог загружен из Google Sheets: ${products.length} товаров`)
           return
         }
         throw new Error('Google Sheets пуст')
@@ -87,10 +86,8 @@ export default function Home() {
         fetchAllCatalog().then(data => {
           if (data.length > 0) {
             setCatalog(data)
-            console.log(`Каталог загружен из Supabase: ${data.length} товаров`)
-          } else {
-            console.log('Используем встроенный каталог')
           }
+          // иначе остаётся встроенный fallbackCatalog
         })
       })
   }, [])
@@ -172,6 +169,18 @@ export default function Home() {
   const handleGenerate = () => {
     if (!form.client_name.trim()) return
 
+    // Если КП уже было рассчитано — предупреждаем что ручные правки в preview
+    // (изменённые цены, скидки, заменённые позиции) пересчитаются заново из
+    // формы. Защита H13/C5 из аудита 2026-05-14.
+    if (kp !== null) {
+      const ok = window.confirm(
+        'Пересчитать КП по форме?\n\n' +
+        'Все ручные правки в превью (изменённые цены, скидки, замены позиций, ' +
+        'удалённые/добавленные строки) будут заменены свежим расчётом.'
+      )
+      if (!ok) return
+    }
+
     // Enrich form with kiosk data for calculator
     const enrichedForm = { ...form }
     if (form.license_type === 'kiosk_pro' && form.selected_kiosk_id) {
@@ -249,6 +258,14 @@ export default function Home() {
   }
 
   const handleReset = () => {
+    // Защита H14/C4 из аудита: «Новое КП» сбрасывает всю работу — confirm.
+    if (kp !== null || form.client_name.trim()) {
+      const ok = window.confirm(
+        'Создать новое КП?\n\n' +
+        'Текущая форма и превью будут очищены.'
+      )
+      if (!ok) return
+    }
     setStep('form')
     setForm({ ...defaultForm })
     setKP(null)
@@ -790,7 +807,6 @@ export default function Home() {
             {/* Синхронизация каталога */}
             <GoogleSyncButton onSync={(data) => {
               setCatalog(data)
-              console.log(`Каталог синхронизирован: ${data.length} товаров`)
             }} />
 
             {/* Кнопка */}
@@ -845,24 +861,6 @@ function RadioCard({ active, color, onClick, title, desc, small }: {
     >
       <div className={`font-medium ${small ? 'text-sm' : ''}`}>{title}</div>
       {desc && <div className={`${small ? 'text-xs' : 'text-sm'} opacity-60 mt-0.5`}>{desc}</div>}
-    </button>
-  )
-}
-
-function CheckCard({ active, onClick, title, desc }: {
-  active: boolean; onClick: () => void; title: string; desc: string
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`rounded-xl border px-3 py-2.5 text-left transition-all ${
-        active
-          ? 'bg-orange-500/15 border-orange-500/40 text-orange-400 ring-1 ring-orange-500/25'
-          : 'bg-white/5 border-white/10 text-white/60 hover:bg-white/10'
-      }`}
-    >
-      <div className="text-sm font-medium">{title}</div>
-      <div className="text-xs opacity-60 mt-0.5">{desc}</div>
     </button>
   )
 }
@@ -1029,118 +1027,6 @@ function parseCSV(csvText: string): Record<string, unknown>[] {
     rows.push(row)
   }
   return rows
-}
-
-function CatalogUpload({ onUpload }: { onUpload: (data: DBProduct[]) => void }) {
-  const [status, setStatus] = useState<'idle' | 'parsing' | 'syncing' | 'done' | 'error'>('idle')
-  const [count, setCount] = useState(0)
-  const [errorMsg, setErrorMsg] = useState('')
-  const [lastSync, setLastSync] = useState<string | null>(null)
-
-  // Синхронизация из Google Sheets (все листы)
-  const handleGoogleSync = async () => {
-    setStatus('syncing')
-    setErrorMsg('')
-
-    try {
-      const products = await fetchGoogleSheetProducts()
-
-      if (products.length === 0) {
-        setStatus('error')
-        setErrorMsg('Таблица пуста, заголовки не распознаны, или нет доступа. Проверьте: Настройки доступа → Все, у кого есть ссылка → Читатель')
-        return
-      }
-
-      setCount(products.length)
-      setLastSync(new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }))
-      setStatus('done')
-      onUpload(products)
-    } catch (err) {
-      setStatus('error')
-      setErrorMsg(err instanceof Error ? err.message : 'Ошибка синхронизации')
-    }
-  }
-
-  // Загрузка из Excel файла
-  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-
-    setStatus('parsing')
-    setErrorMsg('')
-
-    try {
-      const XLSX = await loadXLSX()
-      const buf = await file.arrayBuffer()
-      const wb = XLSX.read(buf, { type: 'array' })
-
-      const products: DBProduct[] = []
-      let idx = 0
-      for (const sheetName of wb.SheetNames) {
-        const ws = wb.Sheets[sheetName]
-        const rows: Record<string, unknown>[] = XLSX.utils.sheet_to_json(ws, { defval: '' })
-        // Имя листа = категория (Планшеты, Кронштейны, Периферия)
-        const sheetCategory = sheetName.trim().toLowerCase()
-        for (const row of rows) {
-          const p = parseRowToProduct(row, idx, sheetCategory)
-          if (p) { products.push(p); idx++ }
-        }
-      }
-
-      if (products.length === 0) {
-        setStatus('error')
-        setErrorMsg('Не найдено ни одной строки с данными.')
-        return
-      }
-
-      setCount(products.length)
-      setLastSync(null)
-      setStatus('done')
-      onUpload(products)
-    } catch (err) {
-      setStatus('error')
-      setErrorMsg(err instanceof Error ? err.message : 'Ошибка парсинга файла')
-    }
-    e.target.value = ''
-  }
-
-  return (
-    <div className="space-y-3">
-      {/* Google Sheets sync */}
-      <button
-        onClick={handleGoogleSync}
-        disabled={status === 'syncing'}
-        className="w-full rounded-xl bg-white/5 border border-white/10 px-4 py-3 text-center hover:border-green-500/40 hover:bg-green-500/5 transition disabled:opacity-50 group"
-      >
-        <span className="text-sm text-white/60 group-hover:text-green-400 flex items-center justify-center gap-2">
-          <svg className={`w-4 h-4 ${status === 'syncing' ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
-          {status === 'syncing' ? 'Синхронизация...' : 'Синхронизировать из Google Sheets'}
-        </span>
-      </button>
-
-      {/* Или загрузка файлом */}
-      <label className="flex items-center gap-3 cursor-pointer group">
-        <input type="file" accept=".xlsx,.xls" onChange={handleFile} className="hidden" />
-        <div className="flex-1 rounded-xl bg-white/5 border border-dashed border-white/20 px-4 py-2.5 text-center group-hover:border-orange-500/40 group-hover:bg-white/10 transition">
-          <span className="text-xs text-white/40 group-hover:text-white/60">
-            {status === 'parsing' ? 'Обработка...' : 'или загрузить .xlsx файлом'}
-          </span>
-        </div>
-      </label>
-
-      {/* Статус */}
-      {status === 'done' && (
-        <p className="text-xs text-green-400/70">
-          Загружено {count} позиций{lastSync ? ` (синхронизация в ${lastSync})` : ''}
-        </p>
-      )}
-      {status === 'error' && (
-        <p className="text-xs text-red-400/70">{errorMsg}</p>
-      )}
-    </div>
-  )
 }
 
 function GoogleSyncButton({ onSync }: { onSync: (data: DBProduct[]) => void }) {

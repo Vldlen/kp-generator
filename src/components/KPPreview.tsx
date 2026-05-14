@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { formatMoney, type KPResult, type LineItem } from '@/lib/calculator'
+import { formatMoney, recomputeLineTotal, type KPResult, type LineItem } from '@/lib/calculator'
 import type { ParsedRequest } from '@/lib/prompt'
 import type { DBProduct } from '@/lib/supabase'
 // Количество слайдов в шаблонах (без КП-слайда)
@@ -11,8 +11,12 @@ const SLIDE_COUNTS: Record<string, { before: number; after: number }> = {
   kiosk:     { before: 4, after: 2 },  // inno_kiosk_template: 6 слайдов, КП после 4-го
   kiosk_pro: { before: 4, after: 2 },
 }
-import { generateKPPptx } from '@/lib/generatePptx'
-import { tablets, mounts, peripherals } from '@/lib/catalog'
+import {
+  generateKPPptx,
+  PPTX_TEMPLATE_LIMITS,
+  checkPptxOverflow,
+} from '@/lib/generatePptx'
+import { tablets, mounts, peripherals, periodMultiplier } from '@/lib/catalog'
 
 // Маппинг реальных имён → обезличенные для КП
 const kpNameMap: Record<string, string> = {}
@@ -135,12 +139,13 @@ function ProductSelector({
 
 // --- Редактируемая числовая ячейка ---
 function EditableNumber({
-  value, onChange, format = 'money', align = 'right',
+  value, onChange, format = 'money', align = 'right', suffix,
 }: {
   value: number
   onChange: (v: number) => void
   format?: 'money' | 'plain' | 'percent'
   align?: 'left' | 'right' | 'center'
+  suffix?: string  // например '/мес' для подписочных строк
 }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
@@ -182,7 +187,7 @@ function EditableNumber({
     >
       {format === 'percent' && value > 0
         ? <span className="text-green-400">{display}</span>
-        : display}
+        : <>{display}{suffix && <span className="text-white/40 ml-0.5">{suffix}</span>}</>}
     </div>
   )
 }
@@ -226,18 +231,32 @@ function EditableName({ value, onChange }: { value: string; onChange: (v: string
 }
 
 // --- Пересчёт ---
+// total = unitPrice × qty × months × (1 - discount/100). См. recomputeLineTotal
+// в calculator.ts — там же лежит источник истины для формулы.
 function recalcItem(item: LineItem): LineItem {
-  return { ...item, total: Math.round(item.unitPrice * item.qty * (1 - item.discount / 100)) }
+  return { ...item, total: recomputeLineTotal(item) }
 }
 
 function recalcSection(section: KPResult['sections'][0]) {
   return { ...section, subtotal: section.items.reduce((sum, i) => sum + i.total, 0) }
 }
 
+/** Признак подписочной строки — есть значимый множитель месяцев. */
+function isSubscription(item: LineItem): boolean {
+  return !!(item.months && item.months > 1)
+}
+
 // ====== MAIN COMPONENT ======
 
-const BUILD_TAG = '2026-04-20-canvas-v3'
-console.log(`[KP] Module loaded, build: ${BUILD_TAG}`)
+const BUILD_TAG = '2026-05-14-pptx'
+
+// Снапшот удаления для undo-toast
+type Removal =
+  | { kind: 'item'; sectionIndex: number; itemIndex: number; item: LineItem; sectionWasDeleted: false }
+  | { kind: 'item'; sectionIndex: number; itemIndex: number; item: LineItem; sectionWasDeleted: true; section: KPResult['sections'][0] }
+  | { kind: 'section'; sectionIndex: number; section: KPResult['sections'][0] }
+
+const UNDO_TIMEOUT_MS = 6000
 
 export function KPPreview({ kp, parsed, catalog }: Props) {
   const isInno = kp.company === 'inno'
@@ -247,8 +266,41 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
   )
   // Какой селектор каталога открыт: [sectionIndex, itemIndex] или null
   const [openSelector, setOpenSelector] = useState<[number, number] | null>(null)
+  // Снапшот последнего удаления для undo-toast (null = нет активного toast'а)
+  const [lastRemoval, setLastRemoval] = useState<Removal | null>(null)
+  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const grandTotal = sections.reduce((sum, s) => sum + s.subtotal, 0)
+
+  // Реактивный пересчёт ежемесячного платежа — раньше показывался kp.monthlyTotal,
+  // который не обновлялся при правках цены/qty/discount лицензии в preview.
+  // Теперь делим текущий total строки лицензии на число месяцев подписки.
+  // Когда (Phase 3) LineItem получит явное поле months, эта формула упростится.
+  const monthlyTotal = (() => {
+    const licenseSection = sections.find(s => s.title === 'Лицензии и подписки')
+    if (!licenseSection || licenseSection.items.length === 0) return 0
+    const months = periodMultiplier[parsed.subscription_period]?.months ?? 1
+    if (months <= 0) return 0
+    const licenseTotal = licenseSection.items.reduce((sum, i) => sum + i.total, 0)
+    return Math.round(licenseTotal / months)
+  })()
+
+  // Очистка таймера undo при размонтировании
+  useEffect(() => {
+    return () => {
+      if (undoTimerRef.current) clearTimeout(undoTimerRef.current)
+    }
+  }, [])
+
+  const scheduleUndoClear = useCallback(() => {
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current)
+    undoTimerRef.current = setTimeout(() => setLastRemoval(null), UNDO_TIMEOUT_MS)
+  }, [])
+
+  const dismissUndo = useCallback(() => {
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current)
+    setLastRemoval(null)
+  }, [])
 
   // Замена позиции на продукт из каталога (имя обезличивается автоматически)
   const replaceWithProduct = useCallback((si: number, ii: number, product: DBProduct) => {
@@ -284,15 +336,57 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
   const removeItem = useCallback((si: number, ii: number) => {
     setSections(prev => {
       const next = prev.map(s => ({ ...s, items: s.items.map(i => ({ ...i })) }))
+      const removedItem = next[si].items[ii]
+      const sectionSnapshot = { ...next[si], items: next[si].items.map(i => ({ ...i })) }
       next[si].items.splice(ii, 1)
       if (next[si].items.length === 0) {
+        // Секция опустошилась — удаляем её и запоминаем для undo
         next.splice(si, 1)
+        setLastRemoval({
+          kind: 'item',
+          sectionIndex: si,
+          itemIndex: ii,
+          item: removedItem,
+          sectionWasDeleted: true,
+          section: sectionSnapshot,
+        })
       } else {
         next[si] = recalcSection(next[si])
+        setLastRemoval({
+          kind: 'item',
+          sectionIndex: si,
+          itemIndex: ii,
+          item: removedItem,
+          sectionWasDeleted: false,
+        })
+      }
+      scheduleUndoClear()
+      return next
+    })
+  }, [scheduleUndoClear])
+
+  const undoLastRemoval = useCallback(() => {
+    if (!lastRemoval) return
+    setSections(prev => {
+      const next = prev.map(s => ({ ...s, items: s.items.map(i => ({ ...i })) }))
+      if (lastRemoval.kind === 'item') {
+        if (lastRemoval.sectionWasDeleted) {
+          // Восстанавливаем секцию целиком
+          next.splice(lastRemoval.sectionIndex, 0, lastRemoval.section)
+        } else {
+          // Вставляем item на исходное место + пересчёт subtotal
+          const si = Math.min(lastRemoval.sectionIndex, next.length - 1)
+          next[si].items.splice(lastRemoval.itemIndex, 0, lastRemoval.item)
+          next[si] = recalcSection(next[si])
+        }
+      } else {
+        // section
+        next.splice(lastRemoval.sectionIndex, 0, lastRemoval.section)
       }
       return next
     })
-  }, [])
+    dismissUndo()
+  }, [lastRemoval, dismissUndo])
 
   const addItem = useCallback((si: number) => {
     setSections(prev => {
@@ -318,27 +412,45 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
     })
   }, [])
 
-  const addSection = useCallback(() => {
-    setSections(prev => [
-      ...prev,
-      { title: 'Дополнительно', items: [{ name: 'Новая позиция', category: 'Дополнительно', qty: 1, unitPrice: 0, discount: 0, total: 0 }], subtotal: 0 },
-    ])
-  }, [])
+  // addSection раньше создавал секцию с title='Дополнительно', которой не было
+  // в списке известных заголовков generatePptx → секция терялась в .pptx, но
+  // grandTotal её включал (P0-2 в аудите 2026-05-14). Кнопка удалена, функция
+  // тоже. Если в будущем понадобится — нужно сначала поддержать 4-ю карточку
+  // в шаблоне .pptx.
 
-  // Собрать KPResult для PDF
-  const getCurrentKP = (): KPResult => ({ ...kp, sections, grandTotal })
+  // Собрать актуальный KPResult — sections / grandTotal / monthlyTotal
+  // пересчитываются по правкам пользователя в preview.
+  const getCurrentKP = (): KPResult => ({ ...kp, sections, grandTotal, monthlyTotal })
 
   // PPTX — генерация презентации
   const handleDownloadPPTX = async () => {
-    console.log(`[KP-PPTX] generating, build: ${BUILD_TAG}, isInno: ${isInno}`)
-    setGenerating(true)
     const currentKP = getCurrentKP()
 
+    // Watchdog: проверяем лимиты шаблона перед выгрузкой.
+    // Без этой проверки лишние строки молча обрежутся (P0-1) и/или секции
+    // с неизвестным заголовком потеряются целиком (P0-2). См. аудит 2026-05-14.
+    const overflow = checkPptxOverflow(currentKP)
+    if (overflow.length > 0) {
+      const lines = overflow.map(issue => {
+        if (issue.templateLimit === 0) {
+          return `• «${issue.sectionTitle}» (${issue.itemCount} поз.) — секция отсутствует в шаблоне .pptx и не будет показана клиенту.`
+        }
+        return `• «${issue.sectionTitle}»: ${issue.itemCount} позиций, в шаблоне ${issue.templateLimit}. Убрать ${issue.itemCount - issue.templateLimit}.`
+      })
+      alert(
+        'Невозможно выгрузить .pptx — превышены лимиты шаблона:\n\n' +
+        lines.join('\n') +
+        '\n\nУменьшите количество позиций в указанных секциях и попробуйте снова.'
+      )
+      return
+    }
+
+    setGenerating(true)
     try {
       await generateKPPptx(currentKP, parsed, isInno)
     } catch (err) {
       console.error('PPTX generation error:', err)
-      alert('Ошибка при генерации PPTX.')
+      alert('Ошибка при генерации PPTX. Попробуйте ещё раз или сообщите в #помощь-кп.')
     } finally {
       setGenerating(false)
     }
@@ -366,15 +478,32 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
       </div>
 
       {/* Sections */}
-      {sections.map((section, si) => (
+      {sections.map((section, si) => {
+        const sectionLimit = PPTX_TEMPLATE_LIMITS[section.title]
+        const atLimit = sectionLimit !== undefined && section.items.length >= sectionLimit
+        const knownSection = sectionLimit !== undefined
+        return (
         <div key={si} className="rounded-xl bg-white/5 border border-white/10 overflow-visible">
-          <div className={`px-4 py-2 text-sm font-medium flex items-center justify-between ${
+          <div className={`px-4 py-2 text-sm font-medium flex items-center justify-between gap-3 ${
             isInno ? 'bg-orange-500/10 text-orange-400' : 'bg-purple-500/10 text-purple-400'
           }`}>
-            <span>{section.title}</span>
+            <span className="flex items-center gap-2">
+              {section.title}
+              {knownSection && (
+                <span className="text-[10px] text-white/40 font-normal">
+                  {section.items.length}/{sectionLimit}
+                </span>
+              )}
+            </span>
             <button
               onClick={() => addItem(si)}
-              className="text-xs opacity-60 hover:opacity-100 transition px-2 py-0.5 rounded bg-white/5 hover:bg-white/10"
+              disabled={atLimit}
+              title={atLimit ? `В шаблоне .pptx максимум ${sectionLimit} строк в этой секции` : 'Добавить позицию'}
+              className={`text-xs transition px-2 py-0.5 rounded bg-white/5 ${
+                atLimit
+                  ? 'opacity-30 cursor-not-allowed'
+                  : 'opacity-60 hover:opacity-100 hover:bg-white/10'
+              }`}
             >
               + Добавить
             </button>
@@ -440,14 +569,21 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
                         align="center"
                       />
                     </td>
-                    {/* Цена */}
+                    {/* Цена. Для подписочных строк (item.months > 1) подпись
+                        «/мес» в значении и «× N мес» строкой ниже. */}
                     <td className="px-4 py-2 text-white/60">
                       <EditableNumber
                         value={item.unitPrice}
                         onChange={v => updateField(si, ii, 'unitPrice', v)}
                         format="money"
                         align="right"
+                        suffix={isSubscription(item) ? '/мес' : undefined}
                       />
+                      {isSubscription(item) && (
+                        <div className="text-[10px] text-white/30 text-right -mt-1">
+                          × {item.months} мес
+                        </div>
+                      )}
                     </td>
                     {/* Скидка */}
                     <td className="px-4 py-2 text-white/60">
@@ -484,16 +620,19 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
               </tr>
             </tfoot>
           </table>
+          {!knownSection && (
+            <div className="px-4 py-2 text-xs text-amber-300/80 bg-amber-500/5 border-t border-amber-500/20">
+              ⚠ Секция «{section.title}» не поддерживается шаблоном .pptx и не будет показана клиенту. Перенесите позиции в Оборудование / Лицензии и подписки / Услуги.
+            </div>
+          )}
         </div>
-      ))}
+        )
+      })}
 
-      {/* Add section */}
-      <button
-        onClick={addSection}
-        className="w-full py-2 rounded-xl border border-dashed border-white/10 text-sm text-white/30 hover:text-white/60 hover:border-white/20 transition"
-      >
-        + Добавить секцию
-      </button>
+      {/* Кнопка «+ Добавить секцию» удалена (баг P0-2 в аудите 2026-05-14):
+          секции с title != 'Оборудование'/'Лицензии и подписки'/'Услуги' молча
+          теряются в .pptx, но входят в grandTotal. До поддержки 4-й карточки
+          в шаблоне функция намеренно недоступна. */}
 
       {/* Grand Total */}
       <div className={`rounded-xl p-4 text-center ${
@@ -502,15 +641,15 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
       }`}>
         <div className="text-sm text-white/50 mb-1">Общая стоимость</div>
         <div className="text-3xl font-bold text-white">{formatMoney(grandTotal)}</div>
-        {kp.monthlyTotal > 0 && (
-          <div className="text-sm text-white/50 mt-1">Ежемесячный платёж: {formatMoney(kp.monthlyTotal)}</div>
+        {monthlyTotal > 0 && (
+          <div className="text-sm text-white/50 mt-1">Ежемесячный платёж: {formatMoney(monthlyTotal)}</div>
         )}
         <div className="text-xs text-white/30 mt-2">{kp.paymentType}</div>
       </div>
 
       {/* Slides info */}
       <div className="rounded-xl bg-white/5 border border-white/10 p-4">
-        <div className="text-sm text-white/50 mb-2">В PDF будет включено:</div>
+        <div className="text-sm text-white/50 mb-2">В презентации будет:</div>
         <div className="grid grid-cols-2 gap-2 text-xs text-white/40">
           <div><span className="text-white/60">До КП:</span> {(SLIDE_COUNTS[parsed.license_type || 'kiosk']?.before || 3)} слайдов</div>
           <div><span className="text-white/60">После КП:</span> {(SLIDE_COUNTS[parsed.license_type || 'kiosk']?.after || 2)} слайдов</div>
@@ -538,6 +677,39 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
           ) : 'Скачать PPTX-презентацию'}
         </button>
       </div>
+
+      {/* Undo-toast — показывается 6 секунд после удаления позиции/секции */}
+      {lastRemoval && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-xl bg-[#1e1e30] border border-white/20 shadow-2xl px-4 py-3 animate-fade-in"
+        >
+          <svg className="w-4 h-4 text-white/50 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
+          </svg>
+          <span className="text-sm text-white/80">
+            {lastRemoval.kind === 'item'
+              ? (lastRemoval.sectionWasDeleted
+                  ? `Удалена секция: «${lastRemoval.section.title}»`
+                  : `Удалено: «${lastRemoval.item.name}»`)
+              : `Удалена секция: «${lastRemoval.section.title}»`}
+          </span>
+          <button
+            onClick={undoLastRemoval}
+            className="text-sm font-medium text-orange-400 hover:text-orange-300 px-2 py-1 rounded transition"
+          >
+            Отменить
+          </button>
+          <button
+            onClick={dismissUndo}
+            className="text-white/40 hover:text-white/70 px-1 transition"
+            aria-label="Закрыть"
+          >
+            ✕
+          </button>
+        </div>
+      )}
     </div>
   )
 }

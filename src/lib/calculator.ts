@@ -18,6 +18,23 @@ export interface LineItem {
   unitPrice: number
   discount: number    // процент
   total: number
+  // Период подписки в месяцах. Используется для лицензий и подписок:
+  // total = unitPrice × qty × months × (1 - discount/100).
+  // Для оборудования и разовых услуг — undefined (трактуется как 1, ничего
+  // не меняется). Введено в Phase 3 фикса P0-3/P0-4 (2026-05-14):
+  // раньше для лицензий хранили `unitPrice = price × months` целиком, что
+  // ввело менеджеров в заблуждение (видели «120 000» вместо «10 000/мес»).
+  months?: number
+}
+
+/** Эффективный множитель месяцев для строки. */
+export function lineMonths(item: LineItem): number {
+  return item.months && item.months > 0 ? item.months : 1
+}
+
+/** Перерасчёт total из qty/unitPrice/discount/months. Источник истины для preview. */
+export function recomputeLineTotal(item: LineItem): number {
+  return Math.round(item.unitPrice * item.qty * lineMonths(item) * (1 - item.discount / 100))
 }
 
 export interface KPResult {
@@ -95,7 +112,10 @@ export function calculateKP(req: ParsedRequest): KPResult {
       })
     }
 
-    // Периферия
+    // Периферия (дефолт) — все позиции из catalog.peripherals.
+    // С Phase 5 dynamic row expansion шаблон .pptx умеет принимать до 11
+    // позиций в «Оборудовании», так что 8-я строка (тот самый «Крепление
+    // для терминала оплаты» из манагерского бага) больше не пропадает.
     for (const p of peripherals) {
       equipItems.push({
         name: p.kpName || p.name,
@@ -223,11 +243,17 @@ export function calculateKP(req: ParsedRequest): KPResult {
 
       monthlyTotal = pricePerMonth
 
+      // Phase 3 (P0-3): unitPrice = цена за единицу в МЕСЯЦ (10 000),
+      // months = период подписки в месяцах. total пересчитывается через
+      // recomputeLineTotal. Раньше unitPrice = price × months, что приводило
+      // к «120 000» в столбце Цена и провоцировало ручную «правку» обратно
+      // к 10 000 (теряя множитель месяцев).
       licItems.push({
         name: `${innoLic.name} × ${qty} ${unitLabel} (${period.label})`,
         category: 'license_inno',
         qty,
-        unitPrice: unitPrice * totalMonths,
+        unitPrice,
+        months: totalMonths,
         discount: 0,
         total: totalPrice,
       })
@@ -240,11 +266,14 @@ export function calculateKP(req: ParsedRequest): KPResult {
 
       monthlyTotal = price
 
+      // Phase 3 (P0-3): ФинДир — qty=1 (один тариф на всю сеть),
+      // unitPrice = price (за месяц), months = период подписки.
       licItems.push({
         name: `ФинДир «${req.findir_tariff}» — ${req.locations} лок. (${period_.label})`,
-        category: 'Лицензия',
+        category: 'license_inno',
         qty: 1,
-        unitPrice: totalPrice,
+        unitPrice: price,
+        months: period_.months,
         discount: 0,
         total: totalPrice,
       })
@@ -257,11 +286,14 @@ export function calculateKP(req: ParsedRequest): KPResult {
         const totalPrice = svc.pricePerUnit * req.locations * period_.months
         monthlyTotal = svc.pricePerUnit * req.locations
 
+        // Phase 3 (P0-3): BONDA BI — qty=locations,
+        // unitPrice = pricePerUnit (за локацию в месяц), months = период.
         licItems.push({
           name: `BONDA BI — ${req.locations} лок. (${period_.label})`,
-          category: 'Лицензия',
+          category: 'license_inno',
           qty: req.locations,
-          unitPrice: svc.pricePerUnit * period_.months,
+          unitPrice: svc.pricePerUnit,
+          months: period_.months,
           discount: 0,
           total: totalPrice,
         })

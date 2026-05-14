@@ -15,6 +15,67 @@
 import { type KPResult } from './calculator'
 import type { ParsedRequest } from './prompt'
 
+// ================================================================
+//  Лимиты строк в .pptx после dynamic row expansion (Phase 5, 2026-05-14)
+//
+//  Шаблон commercial_template.pptx физически содержит 7 строк в карточке
+//  «Оборудование», 1 в «Лицензии и подписки» и 2 в «Услуги». Раньше лишние
+//  строки молча обрезались (P0-1).
+//
+//  Теперь fillCard клонирует row-shapes на лету для секций, где items >
+//  чем шаблонных слотов. Геометрические потолки ниже выведены эмпирически
+//  по доступному месту на слайде (5143500 EMU высоты, row gap 218815 EMU).
+//  При превышении этих значений вёрстка не поместится — watchdog сработает
+//  и заблокирует выгрузку.
+// ================================================================
+
+// Лимиты подобраны эмпирически: ниже линии card-bottom (Y≈4119563) на слайде
+// находится футер «К оплате», поэтому каждая extra-row крадёт ~218815 EMU из
+// зазора ~1024000 EMU. Безопасный потолок ≈ 4 extras. Если упрётесь — либо
+// растим .pptx до 16:9 large, либо двигаем футер ниже отдельной правкой.
+export const PPTX_TEMPLATE_LIMITS: Record<string, number> = {
+  'Оборудование': 11,  // 7 шаблонных + 4 клона
+  'Лицензии и подписки': 3,
+  'Услуги': 6,  // 2 шаблонных + 4 клона
+}
+
+export interface PptxOverflowIssue {
+  sectionTitle: string
+  itemCount: number
+  templateLimit: number
+}
+
+/**
+ * Проверяет, не превышает ли KPResult лимиты шаблона .pptx.
+ * Возвращает массив проблемных секций (пустой если всё ОК).
+ * Вызывать ПЕРЕД generateKPPptx — если массив непустой, выгрузку нужно
+ * заблокировать и показать менеджеру список секций к сокращению.
+ */
+export function checkPptxOverflow(kp: KPResult): PptxOverflowIssue[] {
+  const issues: PptxOverflowIssue[] = []
+  for (const section of kp.sections) {
+    const limit = PPTX_TEMPLATE_LIMITS[section.title]
+    if (limit !== undefined && section.items.length > limit) {
+      issues.push({
+        sectionTitle: section.title,
+        itemCount: section.items.length,
+        templateLimit: limit,
+      })
+    }
+    // Секция с title, не описанным в шаблоне (например, добавленная вручную),
+    // целиком теряется в .pptx, но входит в grandTotal — это ещё один класс
+    // overflow. Сигналим как issue с limit=0.
+    if (limit === undefined) {
+      issues.push({
+        sectionTitle: section.title,
+        itemCount: section.items.length,
+        templateLimit: 0,
+      })
+    }
+  }
+  return issues
+}
+
 function fmtNum(n: number): string {
   return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(n)
 }
@@ -28,6 +89,21 @@ interface RowDef {
   separators: string[]
 }
 
+/**
+ * Геометрия карточки для динамического расширения (Phase 5, 2026-05-14).
+ * Если задана — fillCard сможет клонировать row-shapes когда items больше
+ * чем строк в шаблоне.
+ */
+interface CardGeometry {
+  rowYs: number[]          // Y-позиции существующих строк
+  rowGap: number           // шаг между новыми клонированными строками (EMU)
+  sampleRowIndex: number   // какая строка с separators служит шаблоном для клонов
+  totalSepY: number        // оригинальные Y элементов ИТОГО
+  totalLabelY: number
+  totalValueY: number
+  containerHeight: number  // оригинальная высота контейнера
+}
+
 interface CardMap {
   container: string
   title: string
@@ -37,6 +113,7 @@ interface CardMap {
   totalSep: string
   totalLabel: string
   totalValue: string
+  geometry?: CardGeometry
 }
 
 // --- Левая карточка: Оборудование (7 строк) ---
@@ -164,18 +241,80 @@ function removeCard(xml: string, card: CardMap): string {
   return xml
 }
 
+/**
+ * Расширяет card.rows клонами row-shapes, если items > чем строк в шаблоне.
+ * Работает только для карточек с заданной geometry (LEFT_CARD, RIGHT_BOTTOM_CARD).
+ * Возвращает обновлённые xml + список эффективных строк (включая клоны).
+ */
+function expandCardRows(
+  xml: string,
+  card: CardMap,
+  neededRows: number,
+): { xml: string; rows: RowDef[] } {
+  if (!card.geometry || neededRows <= card.rows.length) {
+    return { xml, rows: card.rows }
+  }
+
+  const extras = neededRows - card.rows.length
+  const sample = card.rows[card.geometry.sampleRowIndex]
+  const sampleY = card.geometry.rowYs[card.geometry.sampleRowIndex]
+  const lastTemplateY = card.geometry.rowYs[card.geometry.rowYs.length - 1]
+
+  let nextId = findMaxCNvId(xml) + 1
+  const newRows: RowDef[] = [...card.rows]
+
+  for (let i = 0; i < extras; i++) {
+    const newRowY = lastTemplateY + (i + 1) * card.geometry.rowGap
+    const dy = newRowY - sampleY
+
+    const newTexts: [string, string, string, string, string] = [
+      `Text Ext ${nextId}_0`,
+      `Text Ext ${nextId}_1`,
+      `Text Ext ${nextId}_2`,
+      `Text Ext ${nextId}_3`,
+      `Text Ext ${nextId}_4`,
+    ]
+    const newSeps = sample.separators.map((_, j) => `Shape Ext ${nextId}_${j}`)
+
+    // Клонируем тексты
+    for (let j = 0; j < 5; j++) {
+      xml = cloneShape(xml, sample.texts[j], newTexts[j], nextId++, dy)
+    }
+    // Клонируем разделители
+    for (let j = 0; j < sample.separators.length; j++) {
+      xml = cloneShape(xml, sample.separators[j], newSeps[j], nextId++, dy)
+    }
+
+    newRows.push({ texts: newTexts, separators: newSeps })
+  }
+
+  return { xml, rows: newRows }
+}
+
 function fillCard(xml: string, card: CardMap, section: KPResult['sections'][0] | null): string {
   if (!section) return removeCard(xml, card)
 
   xml = replaceShapeText(xml, card.title, section.title)
 
-  for (let i = 0; i < card.rows.length; i++) {
-    const row = card.rows[i]
+  // Phase 5: если items больше чем строк в шаблоне — клонируем недостающие.
+  const expanded = expandCardRows(xml, card, section.items.length)
+  xml = expanded.xml
+  const effectiveRows = expanded.rows
+
+  for (let i = 0; i < effectiveRows.length; i++) {
+    const row = effectiveRows[i]
     if (i < section.items.length) {
       const item = section.items[i]
+      // \u0414\u043b\u044f \u043f\u043e\u0434\u043f\u0438\u0441\u043e\u0447\u043d\u044b\u0445 \u0441\u0442\u0440\u043e\u043a (item.months > 1) \u2014 \u0426\u0435\u043d\u0430 \u043f\u043e\u043a\u0430\u0437\u044b\u0432\u0430\u0435\u0442\u0441\u044f \u043a\u0430\u043a
+      // \u00ab10 000/\u043c\u0435\u0441\u00bb, \u0447\u0442\u043e\u0431\u044b \u043a\u043b\u0438\u0435\u043d\u0442 \u043d\u0435 \u043f\u0443\u0442\u0430\u043b \u0435\u0451 \u0441 \u0441\u0443\u043c\u043c\u0430\u0440\u043d\u043e\u0439 \u0437\u0430 \u043f\u0435\u0440\u0438\u043e\u0434.
+      // Phase 3 \u0444\u0438\u043a\u0441\u0430 P0-3/P0-4 (2026-05-14).
+      const isSub = item.months && item.months > 1
+      const priceCell = isSub
+        ? `${fmtNum(item.unitPrice)}/\u043c\u0435\u0441`
+        : fmtNum(item.unitPrice)
       xml = replaceShapeText(xml, row.texts[0], item.name)
       xml = replaceShapeText(xml, row.texts[1], String(item.qty))
-      xml = replaceShapeText(xml, row.texts[2], fmtNum(item.unitPrice))
+      xml = replaceShapeText(xml, row.texts[2], priceCell)
       xml = replaceShapeText(xml, row.texts[3], item.discount > 0 ? `-${item.discount}%` : '\u2014')
       xml = replaceShapeText(xml, row.texts[4], fmtNum(item.total))
     } else {
@@ -209,9 +348,83 @@ const RIGHT_BOTTOM_HEIGHT = 1695822
 // Точные Y-позиции строк данных
 const LEFT_ROW_Y = [1380344, 1599158, 1817973, 2036788, 2364879, 2583694, 2802508]
 const LEFT_TOTAL_Y = { sep: 3142506, label: 3252044, value: 3218706 }
+const LEFT_ROW_GAP = 218815  // шаг между новыми клонированными строками
 
 const RB_ROW_Y = [2962126, 3180941]
 const RB_TOTAL_Y = { sep: 3411662, label: 3521199, value: 3487862 }
+const RB_ROW_GAP = 218815
+
+// Привязываем геометрию к карточкам, чтобы fillCard смог их расширять.
+// sampleRowIndex выбран так, чтобы быть строкой с полным набором separators
+// (для LEFT — index 4, для RB — index 0).
+LEFT_CARD.geometry = {
+  rowYs: LEFT_ROW_Y,
+  rowGap: LEFT_ROW_GAP,
+  sampleRowIndex: 4,
+  totalSepY: LEFT_TOTAL_Y.sep,
+  totalLabelY: LEFT_TOTAL_Y.label,
+  totalValueY: LEFT_TOTAL_Y.value,
+  containerHeight: LEFT_CARD_HEIGHT,
+}
+RIGHT_BOTTOM_CARD.geometry = {
+  rowYs: RB_ROW_Y,
+  rowGap: RB_ROW_GAP,
+  sampleRowIndex: 0,
+  totalSepY: RB_TOTAL_Y.sep,
+  totalLabelY: RB_TOTAL_Y.label,
+  totalValueY: RB_TOTAL_Y.value,
+  containerHeight: RIGHT_BOTTOM_HEIGHT,
+}
+
+/** Ищет максимальный id из всех <p:cNvPr id="N" …/> в XML. Используется
+ *  при клонировании shape'ов — нужен уникальный id для каждого нового. */
+function findMaxCNvId(xml: string): number {
+  let max = 0
+  const re = /<p:cNvPr\s+id="(\d+)"/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(xml)) !== null) {
+    const n = parseInt(m[1])
+    if (n > max) max = n
+  }
+  return max
+}
+
+/** Клонирует shape с новым name, новым cNvPr id и сдвигом dy.
+ *  Клон вставляется сразу после оригинала. Возвращает обновлённый XML. */
+function cloneShape(
+  xml: string,
+  sourceName: string,
+  newName: string,
+  newCNvId: number,
+  dy: number,
+): string {
+  const namePattern = `name="${sourceName}"`
+  const nameIdx = xml.indexOf(namePattern)
+  if (nameIdx === -1) return xml
+
+  let spStart = xml.lastIndexOf('<p:sp>', nameIdx)
+  if (spStart === -1) spStart = xml.lastIndexOf('<p:sp ', nameIdx)
+  if (spStart === -1) return xml
+
+  const spEnd = xml.indexOf('</p:sp>', nameIdx) + '</p:sp>'.length
+  let block = xml.substring(spStart, spEnd)
+
+  // Уникальный name
+  block = block.replace(namePattern, `name="${newName}"`)
+  // Уникальный cNvPr id
+  block = block.replace(/<p:cNvPr\s+id="\d+"/, `<p:cNvPr id="${newCNvId}"`)
+  // Сдвигаем только первое вхождение <a:off> (это основной transform shape'а;
+  // внутренние <a:off> в gradient stops и т.п. не должны меняться)
+  let firstOff = true
+  block = block.replace(/<a:off x="(\d+)" y="(\d+)"/g, (full, x, y) => {
+    if (!firstOff) return full
+    firstOff = false
+    return `<a:off x="${x}" y="${parseInt(y) + dy}"`
+  })
+
+  // Вставить клон сразу после оригинала
+  return xml.substring(0, spEnd) + block + xml.substring(spEnd)
+}
 
 /** Сдвигает shape по оси (dx, dy) */
 function shiftShape(xml: string, shapeName: string, dx: number, dy: number): string {
@@ -302,38 +515,29 @@ function widenCard(
 }
 
 /**
- * Компактифицирует карточку по точным Y-позициям из шаблона.
- * Подтягивает ИТОГО к последней заполненной строке + ужимает контейнер.
+ * Подстраивает геометрию карточки под фактическое число позиций.
+ * Сжимает, если items < чем строк в шаблоне (подтягивает ИТОГО вверх).
+ * Растягивает, если items > чем строк в шаблоне (пушит ИТОГО вниз + растит
+ * контейнер). Phase 5 фикса P0-1 (2026-05-14).
  */
-function compactLeftCard(xml: string, actualItems: number): string {
-  if (actualItems >= LEFT_ROW_Y.length || actualItems <= 0) return xml
+function adjustCardGeometry(xml: string, card: CardMap, actualItems: number): string {
+  if (!card.geometry || actualItems <= 0) return xml
+  const g = card.geometry
 
-  const lastRowY = LEFT_ROW_Y[actualItems - 1]
-  // Зазор от последней строки до ИТОГО-разделителя (как в полном шаблоне)
-  const gap = LEFT_TOTAL_Y.sep - LEFT_ROW_Y[LEFT_ROW_Y.length - 1]  // 679996
-  const targetSepY = lastRowY + gap
-  const shift = LEFT_TOTAL_Y.sep - targetSepY
+  // Y последней визуальной строки (с учётом возможных клонов)
+  const lastRowY = actualItems <= g.rowYs.length
+    ? g.rowYs[actualItems - 1]
+    : g.rowYs[g.rowYs.length - 1] + (actualItems - g.rowYs.length) * g.rowGap
 
-  xml = shiftShape(xml, LEFT_CARD.totalSep, 0, -shift)
-  xml = shiftShape(xml, LEFT_CARD.totalLabel, 0, -shift)
-  xml = shiftShape(xml, LEFT_CARD.totalValue, 0, -shift)
-  xml = resizeShape(xml, LEFT_CARD.container, null, LEFT_CARD_HEIGHT - shift)
+  // Зазор «последняя строка → ИТОГО-разделитель» из шаблона
+  const gapToSep = g.totalSepY - g.rowYs[g.rowYs.length - 1]
+  const targetSepY = lastRowY + gapToSep
+  const shift = g.totalSepY - targetSepY  // positive = подтянуть вверх, negative = пушить вниз
 
-  return xml
-}
-
-function compactRightBottomCard(xml: string, actualItems: number): string {
-  if (actualItems >= RB_ROW_Y.length || actualItems <= 0) return xml
-
-  const lastRowY = RB_ROW_Y[actualItems - 1]
-  const gap = RB_TOTAL_Y.sep - RB_ROW_Y[RB_ROW_Y.length - 1]  // 461442
-  const targetSepY = lastRowY + gap
-  const shift = RB_TOTAL_Y.sep - targetSepY
-
-  xml = shiftShape(xml, RIGHT_BOTTOM_CARD.totalSep, 0, -shift)
-  xml = shiftShape(xml, RIGHT_BOTTOM_CARD.totalLabel, 0, -shift)
-  xml = shiftShape(xml, RIGHT_BOTTOM_CARD.totalValue, 0, -shift)
-  xml = resizeShape(xml, RIGHT_BOTTOM_CARD.container, null, RIGHT_BOTTOM_HEIGHT - shift)
+  xml = shiftShape(xml, card.totalSep, 0, -shift)
+  xml = shiftShape(xml, card.totalLabel, 0, -shift)
+  xml = shiftShape(xml, card.totalValue, 0, -shift)
+  xml = resizeShape(xml, card.container, null, g.containerHeight - shift)
 
   return xml
 }
@@ -411,13 +615,14 @@ export async function generateKPPptx(
   kpSlideXml = fillCard(kpSlideXml, RIGHT_TOP_CARD, licSection)
   kpSlideXml = fillCard(kpSlideXml, RIGHT_BOTTOM_CARD, svcSection)
 
-  // --- A. Компактификация: ИТОГО подтягивается к последней строке ---
+  // --- A. Подгонка геометрии: ИТОГО подтягивается к последней строке
+  //         (сжимает при <7 items, растягивает при >7 для Оборудования).
 
   if (equipSection) {
-    kpSlideXml = compactLeftCard(kpSlideXml, equipSection.items.length)
+    kpSlideXml = adjustCardGeometry(kpSlideXml, LEFT_CARD, equipSection.items.length)
   }
   if (svcSection) {
-    kpSlideXml = compactRightBottomCard(kpSlideXml, svcSection.items.length)
+    kpSlideXml = adjustCardGeometry(kpSlideXml, RIGHT_BOTTOM_CARD, svcSection.items.length)
   }
 
   // --- B. Адаптивная раскладка: перемещение и масштабирование ---
