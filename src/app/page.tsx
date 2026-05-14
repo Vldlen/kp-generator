@@ -448,15 +448,15 @@ export default function Home() {
                       <label className="text-sm text-white/40 block mb-2">Модель киоска</label>
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                         {catalog
-                          .filter(p =>
-                            p.category === 'kiosk' &&
-                            !p.name.toLowerCase().includes('крепление') &&
-                            !p.name.toLowerCase().includes('принтер') &&
-                            !p.name.toLowerCase().includes('сканер') &&
-                            !p.name.toLowerCase().includes('ккт') &&
-                            !p.name.toLowerCase().includes('фискальный') &&
-                            p.sell_price > 0
-                          )
+                          .filter(p => {
+                            // Phase 9 fix: фильтр моделей киосков по POSITIVE
+                            // правилу — name начинается с «Киоск» или «Касса».
+                            // Старая negative-логика на стоп-словах ломалась на
+                            // «Касса МС Mini со сканером».
+                            if (p.category !== 'kiosk' || p.sell_price <= 0) return false
+                            const n = p.name.toLowerCase()
+                            return n.startsWith('киоск') || n.startsWith('касса')
+                          })
                           .map(k => (
                             <button
                               key={k.id}
@@ -589,7 +589,16 @@ export default function Home() {
                       (!p.group || !kioskGroups.has(p.group))
                     )
 
-                    const allOptions = [...groupOptions, ...universalOptions]
+                    // Dedup опций по name+price (если в Sheets продукт повторён
+                    // в разных группах под каждую модель киоска, не плодим
+                    // одинаковые строки в чекбоксах).
+                    const seen = new Set<string>()
+                    const allOptions = [...groupOptions, ...universalOptions].filter(opt => {
+                      const key = `${opt.name}|${opt.sell_price}`
+                      if (seen.has(key)) return false
+                      seen.add(key)
+                      return true
+                    })
                     if (allOptions.length === 0) return null
 
                     const toggleOption = (optId: string) => {
@@ -947,13 +956,22 @@ function parseRowToProduct(row: Record<string, unknown>, index: number, sheetCat
   let rawCategory = String(row['Категория'] || row['category'] || row['Category'] || sheetCategory || 'equipment').trim().toLowerCase()
   const company = String(row['Компания'] || row['company'] || row['Company'] || 'inno').trim().toLowerCase()
 
-  // Внутри листа «Киоски» — крепления, принтеры, сканеры, ККТ получают свою категорию
+  // Внутри листа «Киоски» — крепления, принтеры, сканеры, ККТ получают свою категорию.
+  //
+  // Фикс 2026-05-14: касса/киоск самообслуживания — это ПОЛНОЦЕННЫЕ модели
+  // киосков, даже если в их названии упоминается «со сканером» / «без сканера».
+  // Раньше подстрочный поиск «сканер» переводил «Касса МС Mini 15 N со сканером»
+  // в категорию опций, и она появлялась в «Дополнительно» вместо выбора моделей.
   if (rawCategory === 'киоски' || rawCategory === 'киоск') {
     const nameLower = name.toLowerCase()
-    if (nameLower.includes('крепление')) rawCategory = '_kiosk_mount'
-    else if (nameLower.includes('принтер')) rawCategory = '_kiosk_option'
-    else if (nameLower.includes('сканер')) rawCategory = '_kiosk_option'
-    else if (nameLower.includes('ккт') || nameLower.includes('фискальн')) rawCategory = '_kiosk_option'
+    const isKioskModel = nameLower.startsWith('киоск') || nameLower.startsWith('касса')
+
+    if (!isKioskModel) {
+      if (nameLower.includes('крепление')) rawCategory = '_kiosk_mount'
+      else if (nameLower.includes('принтер')) rawCategory = '_kiosk_option'
+      else if (nameLower.includes('сканер')) rawCategory = '_kiosk_option'
+      else if (nameLower.includes('ккт') || nameLower.includes('фискальн')) rawCategory = '_kiosk_option'
+    }
   }
 
   // Цены из Google Sheets — целые рубли в русской локали. Запятая, пробел и
