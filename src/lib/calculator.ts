@@ -5,7 +5,7 @@ import {
   tablets, mounts, peripherals, kioskKits, posEquipment,
   services, innoLicenses, findirTariffs,
   getLicensePrice, getFindirPrice, periodMultiplier,
-  getProductById,
+  getProductById, INNO_LICENSE_PRICES,
   type SubscriptionPeriod,
 } from './catalog'
 
@@ -66,6 +66,19 @@ export function calculateKP(req: ParsedRequest): KPResult {
     floor: 'mount-masterhold-kiosk',
   }
 
+  // Фикс H1 (2026-05-14): часть «периферии» нужна 1 шт на локацию, а не на
+  // каждое устройство. При devices > locations калькулятор завышал смету —
+  // например, при 3 планшетах на 1 точке клиенту прилетал хаб × 3 = 11 700 ₽
+  // вместо ожидаемых 3 900 ₽. Список ниже описывает SKU которые масштабируются
+  // по locations, не по devices. Менеджер может всё равно вручную поправить
+  // qty в превью.
+  const PER_LOCATION_EQUIPMENT = new Set<string>([
+    'peri-hub-lan',          // Сетевой хаб USB-C с LAN — один на локацию
+    'mount-pinpad-bracket',  // Крепление для терминала оплаты — один на эквайринг
+  ])
+  const equipQty = (productId: string): number =>
+    PER_LOCATION_EQUIPMENT.has(productId) ? Math.max(1, req.locations) : req.devices
+
   // Для inno Kiosk: планшет + кронштейн + адаптер + периферия
   if (req.devices > 0 && req.license_type === 'kiosk') {
     const equipItems: LineItem[] = []
@@ -114,29 +127,31 @@ export function calculateKP(req: ParsedRequest): KPResult {
 
     // Периферия (дефолт) — все позиции из catalog.peripherals.
     // С Phase 5 dynamic row expansion шаблон .pptx умеет принимать до 11
-    // позиций в «Оборудовании», так что 8-я строка (тот самый «Крепление
-    // для терминала оплаты» из манагерского бага) больше не пропадает.
+    // позиций в «Оборудовании». Phase 8 (H1): qty для hub-lan берётся из
+    // locations, а не из devices — это «общая инфра локации».
     for (const p of peripherals) {
+      const qty = equipQty(p.id)
       equipItems.push({
         name: p.kpName || p.name,
         category: 'peripheral',
-        qty: req.devices,
+        qty,
         unitPrice: p.sellPrice,
         discount: 0,
-        total: p.sellPrice * req.devices,
+        total: p.sellPrice * qty,
       })
     }
 
-    // Крепление пинпада
+    // Крепление пинпада (per_location — один эквайринг на точку, см. H1)
     const pinpad = getProductById('mount-pinpad-bracket')
     if (pinpad) {
+      const qty = equipQty(pinpad.id)
       equipItems.push({
         name: pinpad.kpName || pinpad.name,
         category: 'peripheral',
-        qty: req.devices,
+        qty,
         unitPrice: pinpad.sellPrice,
         discount: 0,
-        total: pinpad.sellPrice * req.devices,
+        total: pinpad.sellPrice * qty,
       })
     }
 
@@ -220,22 +235,15 @@ export function calculateKP(req: ParsedRequest): KPResult {
     const licItems: LineItem[] = []
     const period = periodMultiplier[req.subscription_period]
 
-    // ИННО лицензии: QR, Ecomm, Kiosk, Kiosk PRO
-    const innoLicPrices: Record<string, { name: string; price: number }> = {
-      qr: { name: 'inno QR', price: 8000 },
-      ecomm: { name: 'inno Ecomm', price: 15000 },
-      kiosk: { name: 'inno Kiosk', price: 10000 },
-      kiosk_pro: { name: 'inno Kiosk PRO', price: 16200 },
-    }
-
-    const innoLic = innoLicPrices[req.license_type]
+    // ИННО лицензии: QR, Ecomm, Kiosk, Kiosk PRO.
+    // Phase 9 (H22): цены берутся из catalog.INNO_LICENSE_PRICES, не дублируются здесь.
+    const innoLic = INNO_LICENSE_PRICES[req.license_type]
     if (innoLic) {
-      // QR и Ecomm — по локациям, Kiosk/Kiosk PRO — по устройствам
-      const isPerLocation = req.license_type === 'qr' || req.license_type === 'ecomm'
+      const isPerLocation = innoLic.unit === 'location'
       const qty = isPerLocation ? req.locations : req.devices
       const unitLabel = isPerLocation ? 'лок.' : 'устр.'
 
-      const basePrice = innoLic.price
+      const basePrice = innoLic.pricePerMonth
       const unitPrice = getLicensePrice(basePrice, qty)
       const totalMonths = period.months
       const pricePerMonth = unitPrice * qty
@@ -262,21 +270,36 @@ export function calculateKP(req: ParsedRequest): KPResult {
     if (req.license_type === 'findir' && req.findir_tariff) {
       const price = getFindirPrice(req.findir_tariff, req.locations)
       const period_ = periodMultiplier[req.subscription_period]
-      const totalPrice = price * period_.months
 
-      monthlyTotal = price
+      // Phase 8 (H2): если locations > 20, getFindirPrice вернёт null —
+      // тарифной сетки нет, нужна индивидуальная цена. Создаём строку-
+      // плейсхолдер с unitPrice=0 и подписью «цена по запросу» — менеджер
+      // увидит и проставит руками в превью после согласования.
+      if (price === null) {
+        licItems.push({
+          name: `ФинДир «${req.findir_tariff}» — ${req.locations} лок. (цена по запросу, ${period_.label})`,
+          category: 'license_inno',
+          qty: 1,
+          unitPrice: 0,
+          months: period_.months,
+          discount: 0,
+          total: 0,
+        })
+        monthlyTotal = 0
+      } else {
+        monthlyTotal = price
 
-      // Phase 3 (P0-3): ФинДир — qty=1 (один тариф на всю сеть),
-      // unitPrice = price (за месяц), months = период подписки.
-      licItems.push({
-        name: `ФинДир «${req.findir_tariff}» — ${req.locations} лок. (${period_.label})`,
-        category: 'license_inno',
-        qty: 1,
-        unitPrice: price,
-        months: period_.months,
-        discount: 0,
-        total: totalPrice,
-      })
+        // Phase 3 (P0-3): unitPrice = price (за месяц), months = период.
+        licItems.push({
+          name: `ФинДир «${req.findir_tariff}» — ${req.locations} лок. (${period_.label})`,
+          category: 'license_inno',
+          qty: 1,
+          unitPrice: price,
+          months: period_.months,
+          discount: 0,
+          total: price * period_.months,
+        })
+      }
     }
 
     if (req.license_type === 'bonda_bi') {

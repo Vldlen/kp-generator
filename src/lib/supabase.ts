@@ -27,6 +27,11 @@ export interface DBProduct {
   updated_at: string
   group?: string | null  // Группа (for kiosks)
   image_url?: string | null  // URL to product image
+  /** Phase 9 (H7, 2026-05-14): обезличенное имя для КП клиенту.
+   *  Если задано — в .pptx уйдёт это значение, а не `name` (с брендом).
+   *  Колонка в Google Sheets: «Имя для КП» / «kp_name» / «KP Name».
+   *  Для встроенного fallback-каталога заполняется из `Product.kpName`. */
+  kp_name?: string | null
 }
 
 // ---------- API ----------

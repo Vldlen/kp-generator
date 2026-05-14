@@ -9,6 +9,7 @@ import {
   periodMultiplier,
   allProducts,
   tablets,
+  INNO_LICENSE_PRICES,
   type SubscriptionPeriod,
 } from '@/lib/catalog'
 import { fetchAllCatalog, type DBProduct } from '@/lib/supabase'
@@ -63,6 +64,7 @@ const fallbackCatalog: DBProduct[] = allProducts.map(p => ({
   updated_at: '',
   group: null,
   image_url: null,
+  kp_name: p.kpName || null,  // Phase 9 (H7): пробрасываем обезличенное имя
 }))
 
 export default function Home() {
@@ -352,32 +354,32 @@ export default function Home() {
                       active={form.license_type === 'qr'}
                       color="orange"
                       onClick={() => update('license_type', 'qr')}
-                      title="inno QR"
-                      desc="8 000 ₽/мес · Без оборудования"
+                      title={INNO_LICENSE_PRICES.qr.name}
+                      desc={INNO_LICENSE_PRICES.qr.uiLabel}
                       small
                     />
                     <RadioCard
                       active={form.license_type === 'ecomm'}
                       color="orange"
                       onClick={() => update('license_type', 'ecomm')}
-                      title="inno Ecomm"
-                      desc="15 000 ₽/мес · Без оборудования"
+                      title={INNO_LICENSE_PRICES.ecomm.name}
+                      desc={INNO_LICENSE_PRICES.ecomm.uiLabel}
                       small
                     />
                     <RadioCard
                       active={form.license_type === 'kiosk'}
                       color="orange"
                       onClick={() => update('license_type', 'kiosk')}
-                      title="inno Kiosk"
-                      desc="10 000 ₽/мес · Планшет + периферия"
+                      title={INNO_LICENSE_PRICES.kiosk.name}
+                      desc={INNO_LICENSE_PRICES.kiosk.uiLabel}
                       small
                     />
                     <RadioCard
                       active={form.license_type === 'kiosk_pro'}
                       color="orange"
                       onClick={() => update('license_type', 'kiosk_pro')}
-                      title="inno Kiosk PRO"
-                      desc="16 200 ₽/мес · Готовый киоск"
+                      title={INNO_LICENSE_PRICES.kiosk_pro.name}
+                      desc={INNO_LICENSE_PRICES.kiosk_pro.uiLabel}
                       small
                     />
                   </div>
@@ -954,11 +956,18 @@ function parseRowToProduct(row: Record<string, unknown>, index: number, sheetCat
     else if (nameLower.includes('ккт') || nameLower.includes('фискальн')) rawCategory = '_kiosk_option'
   }
 
-  // Цены: убираем "р.", пробелы, запятые — чтобы парсить "р.19 300" и "19300"
+  // Цены из Google Sheets — целые рубли в русской локали. Запятая, пробел и
+  // валютные символы — это разделители тысяч. Точку оставляем как опциональный
+  // decimal separator (на случай копеек).
+  //
+  // Phase 8 (H3): раньше код делал `.replace(',', '.')` — превращал «1,200»
+  // (=1200) в «1.200» → Number = 1.2. Если кто-то когда-то ввёл цену с
+  // запятой как separator тысяч, товар парсился почти бесплатно.
   const parsePrice = (val: unknown): number => {
     if (typeof val === 'number') return val
-    const cleaned = String(val).replace(/[р.₽\s]/g, '').replace(',', '.')
-    return Number(cleaned) || 0
+    const cleaned = String(val).replace(/[р₽\s,]/gi, '')
+    const num = Number(cleaned)
+    return isNaN(num) ? 0 : num
   }
 
   const costPrice = parsePrice(row['Закупочная'] || row['Себестоимость'] || row['cost_price'] || row['Cost'] || 0)
@@ -990,6 +999,9 @@ function parseRowToProduct(row: Record<string, unknown>, index: number, sheetCat
     updated_at: new Date().toISOString(),
     group: String(row['Группа'] || row['group'] || '').trim() || null,
     image_url: String(row['Фото'] || row['photo'] || row['image'] || '').trim() || null,
+    // Phase 9 (H7): обезличенное имя для КП. Если в листе есть колонка
+    // «Имя для КП» / «kp_name» — берём оттуда. Иначе null → используется name.
+    kp_name: String(row['Имя для КП'] || row['kp_name'] || row['KP Name'] || '').trim() || null,
   }
 }
 

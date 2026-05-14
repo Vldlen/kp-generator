@@ -18,14 +18,19 @@ import {
 } from '@/lib/generatePptx'
 import { tablets, mounts, peripherals, periodMultiplier } from '@/lib/catalog'
 
-// Маппинг реальных имён → обезличенные для КП
+// Маппинг реальных имён → обезличенные для КП. Используется как fallback,
+// если у продукта нет своего kp_name (Phase 9, H7).
 const kpNameMap: Record<string, string> = {}
 for (const arr of [tablets, mounts, peripherals]) {
   for (const p of arr) {
     if (p.kpName) kpNameMap[p.name] = p.kpName
   }
 }
-function getKpName(realName: string): string {
+/** Возвращает обезличенное имя продукта для КП. Приоритет: явный kp_name
+ *  из продукта (Google Sheets / fallback каталог), затем встроенная карта,
+ *  затем — реальное имя как есть. */
+function getKpName(realName: string, kpNameOverride?: string | null): string {
+  if (kpNameOverride) return kpNameOverride
   return kpNameMap[realName] || realName
 }
 
@@ -48,15 +53,18 @@ interface Props {
   catalog: DBProduct[]  // каталог из Supabase
 }
 
-// Найти продукт по имени в каталоге
+// Найти продукт по имени в каталоге. Ищем и по реальному name, и по kp_name —
+// потому что в LineItem.name лежит обезличенное имя (Phase 9, H10).
 function findProductByName(catalog: DBProduct[], name: string): DBProduct | undefined {
-  return catalog.find(p => p.name === name)
+  return catalog.find(p => p.name === name || p.kp_name === name)
 }
 
-// Получить товары той же категории для замены
+// Получить товары той же категории для замены. Если продукт не найден —
+// возвращаем пустой каталог (раньше показывали ВЕСЬ каталог, что давало
+// кашу из 200 SKU без фильтра).
 function getAlternatives(catalog: DBProduct[], productName: string): DBProduct[] {
   const product = findProductByName(catalog, productName)
-  if (!product) return catalog // если не нашли — показать весь каталог
+  if (!product) return []
   return catalog.filter(p => p.category === product.category)
 }
 
@@ -302,7 +310,8 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
     setLastRemoval(null)
   }, [])
 
-  // Замена позиции на продукт из каталога (имя обезличивается автоматически)
+  // Замена позиции на продукт из каталога (имя обезличивается автоматически —
+  // приоритет kp_name из продукта, иначе fallback на встроенный kpNameMap).
   const replaceWithProduct = useCallback((si: number, ii: number, product: DBProduct) => {
     setSections(prev => {
       const next = prev.map(s => ({ ...s, items: s.items.map(i => ({ ...i })) }))
@@ -310,7 +319,7 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
       const oldQty = item.qty
       next[si].items[ii] = recalcItem({
         ...item,
-        name: getKpName(product.name),
+        name: getKpName(product.name, product.kp_name),
         unitPrice: product.sell_price,
         qty: oldQty,
       })

@@ -538,6 +538,49 @@ export function getLicensePrice(basePrice: number, _qty: number): number {
   return basePrice
 }
 
+// ---------- Цены лицензий ИННО — единый источник истины ----------
+//
+// Phase 9 (H22, 2026-05-14): раньше эти цены жили в 3 местах одновременно —
+// labels формы (page.tsx), innoLicPrices в calculator.ts, innoLicenses здесь.
+// Любая смена цены требовала синхронной правки трёх файлов; дрейф — вопрос
+// времени. Теперь page.tsx и calculator.ts читают этот объект.
+
+export interface InnoLicensePrice {
+  name: string
+  pricePerMonth: number
+  /** unit: 'location' — qty считается по локациям (QR/Ecomm),
+   *  'device' — по устройствам (Kiosk/Kiosk PRO). */
+  unit: 'location' | 'device'
+  uiLabel: string  // что показывается в карточке формы (под названием)
+}
+
+export const INNO_LICENSE_PRICES: Record<string, InnoLicensePrice> = {
+  qr: {
+    name: 'inno QR',
+    pricePerMonth: 8000,
+    unit: 'location',
+    uiLabel: '8 000 ₽/мес · Без оборудования',
+  },
+  ecomm: {
+    name: 'inno Ecomm',
+    pricePerMonth: 15000,
+    unit: 'location',
+    uiLabel: '15 000 ₽/мес · Без оборудования',
+  },
+  kiosk: {
+    name: 'inno Kiosk',
+    pricePerMonth: 10000,
+    unit: 'device',
+    uiLabel: '10 000 ₽/мес · Планшет + периферия',
+  },
+  kiosk_pro: {
+    name: 'inno Kiosk PRO',
+    pricePerMonth: 16200,
+    unit: 'device',
+    uiLabel: '16 200 ₽/мес · Готовый киоск',
+  },
+}
+
 // ---------- Скидка за период подписки ----------
 
 export const periodMultiplier: Record<SubscriptionPeriod, { months: number; discount: number; label: string }> = {
@@ -549,7 +592,18 @@ export const periodMultiplier: Record<SubscriptionPeriod, { months: number; disc
 
 // ---------- ФинДир: получить цену по тарифу и кол-ву локаций ----------
 
-export function getFindirPrice(tariffName: string, locations: number): number {
+/**
+ * Возвращает цену тарифа ФинДир за месяц для указанного числа локаций.
+ *
+ * Возвращает `null` если в тарифной сетке нет ступени для запрошенного объёма
+ * (locations > 20 — это уровень крупной сети, цена индивидуальная). Раньше
+ * (до Phase 8 фикса H2 2026-05-14) для locations > 20 функция тихо возвращала
+ * цену ступени «16-20», что занижало смету на крупных сетях.
+ *
+ * Calculator при null генерирует строку с «цена по запросу» и unitPrice=0,
+ * чтобы менеджер увидел и проставил цену вручную после согласования.
+ */
+export function getFindirPrice(tariffName: string, locations: number): number | null {
   const tariff = findirTariffs.find(t => t.name === tariffName)
   if (!tariff) return 0
   if (locations <= 1) return tariff.pricing['1']
@@ -557,7 +611,8 @@ export function getFindirPrice(tariffName: string, locations: number): number {
   if (locations <= 5) return tariff.pricing['3-5']
   if (locations <= 10) return tariff.pricing['6-10']
   if (locations <= 15) return tariff.pricing['11-15']
-  return tariff.pricing['16-20']
+  if (locations <= 20) return tariff.pricing['16-20']
+  return null  // > 20 — цена не определена тарифом, требует индивидуального расчёта
 }
 
 // ---------- Все продукты в одном массиве ----------
