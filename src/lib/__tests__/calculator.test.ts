@@ -140,13 +140,13 @@ describe('calculateKP — inno Kiosk', () => {
     expect(mount?.unitPrice).toBe(28500)
   })
 
-  it('3 устройства, 1 локация: per-device × 3, hub+pinpad × 1 (H1 фикс)', () => {
+  it('3 устройства → все equip-позиции с qty=3 и subtotal×3', () => {
+    // Каждый планшет = независимая киоск-станция со своим полным комплектом,
+    // включая хаб LAN и крепление эквайринга.
     const kp = calculateKP(baseForm({ license_type: 'kiosk', devices: 3, locations: 1 }))
     const equip = findSection(kp, 'Оборудование')!
-    // tablet×3 (195000) + mount×3 (18600) + adapter×3 (15900) +
-    // БП×3 (10500) + кабель×3 (3300) + угловой×3 (2100) +
-    // хаб×1 (3900) + пинпад×1 (2500) = 251 800
-    expect(equip.subtotal).toBe(251800)
+    expect(equip.items.every(i => i.qty === 3)).toBe(true)
+    expect(equip.subtotal).toBe(88200 * 3)  // 264 600
   })
 
   it('selected_tablet_id выбирает указанный планшет', () => {
@@ -603,41 +603,23 @@ describe('calculateKP — LineItem.months для всех подписок', () 
 // Pre-Phase-8 baseline: фиксация известных багов H1/H3 для регрессии
 // ─────────────────────────────────────────────────────────────────────────
 
-describe('calculateKP — H1 фикс (per-location vs per-device equipment)', () => {
-  it('хаб LAN и крепление пинпада масштабируются по locations, не по devices', () => {
-    // 3 устройства на 1 локации: tablet/mount/adapter/БП/кабель/угловой × 3,
-    // а хаб LAN и крепление пинпада × 1 (общие на локацию).
+describe('calculateKP — все позиции оборудования × devices (каждый планшет = свой комплект)', () => {
+  it('хаб LAN и крепление пинпада тоже × devices, не × locations', () => {
+    // Каждый планшет — самостоятельная киоск-станция со своим хабом и
+    // своим креплением эквайринга. Они НЕ общие на локацию.
     const kp = calculateKP(baseForm({ license_type: 'kiosk', devices: 3, locations: 1 }))
     const hub = findItem(kp, 'Оборудование', 'Сетевой хаб')!
     const pinpad = findItem(kp, 'Оборудование', 'Крепление для терминала')!
-    expect(hub.qty).toBe(1)
-    expect(hub.total).toBe(3900)
-    expect(pinpad.qty).toBe(1)
-    expect(pinpad.total).toBe(2500)
+    expect(hub.qty).toBe(3)
+    expect(hub.total).toBe(3900 * 3)
+    expect(pinpad.qty).toBe(3)
+    expect(pinpad.total).toBe(2500 * 3)
   })
 
-  it('per-device позиции всё ещё масштабируются по devices', () => {
-    const kp = calculateKP(baseForm({ license_type: 'kiosk', devices: 3, locations: 1 }))
-    const tablet = findItem(kp, 'Оборудование', 'Планшет')!
-    const adapter = findItem(kp, 'Оборудование', 'Адаптер для планшета')!
-    const charger = findItem(kp, 'Оборудование', 'Блок питания')!
-    expect(tablet.qty).toBe(3)
-    expect(adapter.qty).toBe(3)
-    expect(charger.qty).toBe(3)
-  })
-
-  it('5 локаций × 2 устройства: хаб × 5, планшет × 2', () => {
-    const kp = calculateKP(baseForm({ license_type: 'kiosk', devices: 2, locations: 5 }))
-    const hub = findItem(kp, 'Оборудование', 'Сетевой хаб')!
-    const tablet = findItem(kp, 'Оборудование', 'Планшет')!
-    expect(hub.qty).toBe(5)
-    expect(tablet.qty).toBe(2)
-  })
-
-  it('1 устройство × 1 локация — всё × 1 как раньше', () => {
+  it('1 устройство × 1 локация — всё × 1', () => {
     const kp = calculateKP(baseForm({ license_type: 'kiosk', devices: 1, locations: 1 }))
     const equip = findSection(kp, 'Оборудование')!
     expect(equip.items.every(i => i.qty === 1)).toBe(true)
-    expect(equip.subtotal).toBe(88200)  // тот же дефолт
+    expect(equip.subtotal).toBe(88200)
   })
 })

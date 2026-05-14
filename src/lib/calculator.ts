@@ -66,20 +66,11 @@ export function calculateKP(req: ParsedRequest): KPResult {
     floor: 'mount-masterhold-kiosk',
   }
 
-  // Фикс H1 (2026-05-14): часть «периферии» нужна 1 шт на локацию, а не на
-  // каждое устройство. При devices > locations калькулятор завышал смету —
-  // например, при 3 планшетах на 1 точке клиенту прилетал хаб × 3 = 11 700 ₽
-  // вместо ожидаемых 3 900 ₽. Список ниже описывает SKU которые масштабируются
-  // по locations, не по devices. Менеджер может всё равно вручную поправить
-  // qty в превью.
-  const PER_LOCATION_EQUIPMENT = new Set<string>([
-    'peri-hub-lan',          // Сетевой хаб USB-C с LAN — один на локацию
-    'mount-pinpad-bracket',  // Крепление для терминала оплаты — один на эквайринг
-  ])
-  const equipQty = (productId: string): number =>
-    PER_LOCATION_EQUIPMENT.has(productId) ? Math.max(1, req.locations) : req.devices
-
-  // Для inno Kiosk: планшет + кронштейн + адаптер + периферия
+  // Для inno Kiosk: каждый планшет = самостоятельная киоск-станция со своим
+  // полным комплектом (хаб LAN, крепление эквайринга и пр.). Все позиции
+  // масштабируются по devices. История: 14.05.2026 на короткое время хаб
+  // и крепление пинпада считались по locations — это было неверным толкованием
+  // аудита, откатили на тот же день.
   if (req.devices > 0 && req.license_type === 'kiosk') {
     const equipItems: LineItem[] = []
 
@@ -125,33 +116,30 @@ export function calculateKP(req: ParsedRequest): KPResult {
       })
     }
 
-    // Периферия (дефолт) — все позиции из catalog.peripherals.
+    // Периферия (дефолт) — все позиции из catalog.peripherals, × devices.
     // С Phase 5 dynamic row expansion шаблон .pptx умеет принимать до 11
-    // позиций в «Оборудовании». Phase 8 (H1): qty для hub-lan берётся из
-    // locations, а не из devices — это «общая инфра локации».
+    // позиций в «Оборудовании».
     for (const p of peripherals) {
-      const qty = equipQty(p.id)
       equipItems.push({
         name: p.kpName || p.name,
         category: 'peripheral',
-        qty,
+        qty: req.devices,
         unitPrice: p.sellPrice,
         discount: 0,
-        total: p.sellPrice * qty,
+        total: p.sellPrice * req.devices,
       })
     }
 
-    // Крепление пинпада (per_location — один эквайринг на точку, см. H1)
+    // Крепление пинпада — × devices (на каждый планшет свой эквайринг).
     const pinpad = getProductById('mount-pinpad-bracket')
     if (pinpad) {
-      const qty = equipQty(pinpad.id)
       equipItems.push({
         name: pinpad.kpName || pinpad.name,
         category: 'peripheral',
-        qty,
+        qty: req.devices,
         unitPrice: pinpad.sellPrice,
         discount: 0,
-        total: pinpad.sellPrice * qty,
+        total: pinpad.sellPrice * req.devices,
       })
     }
 
