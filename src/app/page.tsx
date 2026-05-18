@@ -448,15 +448,7 @@ export default function Home() {
                       <label className="text-sm text-white/40 block mb-2">Модель киоска</label>
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                         {catalog
-                          .filter(p => {
-                            // Phase 9 fix: фильтр моделей киосков по POSITIVE
-                            // правилу — name начинается с «Киоск» или «Касса».
-                            // Старая negative-логика на стоп-словах ломалась на
-                            // «Касса МС Mini со сканером».
-                            if (p.category !== 'kiosk' || p.sell_price <= 0) return false
-                            const n = p.name.toLowerCase()
-                            return n.startsWith('киоск') || n.startsWith('касса')
-                          })
+                          .filter(p => p.category === 'kiosk' && p.sell_price > 0)
                           .map(k => (
                             <button
                               key={k.id}
