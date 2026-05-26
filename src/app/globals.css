@@ -2,17 +2,343 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background: #0f0f1a;
-  color: #e0e0e0;
+/* ============================================================
+   «Печатный цех» — дизайн-система редизайна (2026-05)
+   Бумага и краска, типографская сетка, оранжевая краска-акцент.
+   ============================================================ */
+
+:root {
+  /* Светлая редакция — бумага */
+  --bg:           #F4F1EA;
+  --surface:      #FCFAF4;
+  --surface-2:    #EAE5D8;
+  --text:         #1A1714;
+  --text-2:       #6B6358;
+  --text-3:       #9A9389;
+  --rule:         #D8D2C6;
+  --accent:       #FF5A00;
+  --accent-soft:  #FBE3D6;
+  --bonda:        #3D2A4D;
+  --bonda-soft:   #E8E2EC;
+  /* Инвертированный блок (выбранное состояние) */
+  --invert-bg:    #1A1714;
+  --invert-text:  #F4F1EA;
+  --invert-text-2:#9C948A;
+  --danger:       #B23B2E;
+  --grain-blend:  multiply;
+  --grain-opacity:.05;
 }
 
-/* Undo-toast — мягкое появление снизу */
+:root[data-theme='dark'] {
+  /* Тёмная редакция — печатный цех ночью */
+  --bg:           #16140F;
+  --surface:      #211E18;
+  --surface-2:    #2C2820;
+  --text:         #F0EBDF;
+  --text-2:       #A89F8E;
+  --text-3:       #6F685A;
+  --rule:         #38322A;
+  --accent:       #FF6A1A;
+  --accent-soft:  #3A2415;
+  --bonda:        #C2A6D8;
+  --bonda-soft:   #2A2235;
+  --invert-bg:    #F0EBDF;
+  --invert-text:  #16140F;
+  --invert-text-2:#6F685A;
+  --danger:       #E0664F;
+  --grain-blend:  screen;
+  --grain-opacity:.045;
+}
+
+* { box-sizing: border-box; }
+
+html, body { padding: 0; margin: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-text), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: 'tnum' 0;
+}
+
+::selection { background: var(--accent); color: #fff; }
+
+/* Бумажное зерно — тонкий шум поверх всего */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  opacity: var(--grain-opacity);
+  mix-blend-mode: var(--grain-blend);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ---------- Ступенчатый вход страницы ---------- */
+
+@keyframes pcRise {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.pc-rise { opacity: 0; animation: pcRise .55s cubic-bezier(.2,.7,.2,1) both; }
+
+/* Undo-toast (Phase 1) — оставляем, переименовать нельзя без правки KPPreview */
 @keyframes fade-in {
   from { opacity: 0; transform: translate(-50%, 8px); }
   to   { opacity: 1; transform: translate(-50%, 0); }
 }
-.animate-fade-in {
-  animation: fade-in 200ms ease-out;
+.animate-fade-in { animation: fade-in 200ms ease-out; }
+
+/* ============================================================
+   Компоненты «Печатного цеха»
+   ============================================================ */
+@layer components {
+
+  /* --- Каркас страницы --- */
+  .pc-app   { min-height: 100vh; background: var(--bg); }
+  .pc-shell { max-width: 760px; margin: 0 auto; background: var(--bg);
+              border-left: 1px solid var(--text); border-right: 1px solid var(--text);
+              counter-reset: pcsec; }
+  .pc-bar   { height: 5px; background: var(--accent); }
+
+  /* --- Хедер --- */
+  .pc-head  { display: flex; justify-content: space-between; align-items: flex-start;
+              gap: 16px; padding: 22px 32px; }
+  .pc-mark  { width: 48px; height: 48px; flex: none; background: var(--text);
+              color: var(--bg); font-family: var(--font-display); font-weight: 700;
+              font-size: 18px; letter-spacing: -.04em;
+              display: flex; align-items: center; justify-content: center; }
+  .pc-word  { font-family: var(--font-display); font-weight: 700; font-size: 23px;
+              letter-spacing: -.03em; line-height: 1; color: var(--text); }
+  .pc-subw  { font-size: 12px; color: var(--text-2); margin-top: 5px; }
+  .pc-meta  { font-family: var(--font-mono); font-size: 11px; color: var(--text-2);
+              text-align: right; line-height: 1.7; letter-spacing: .04em; white-space: nowrap; }
+
+  /* --- Секция с номером на поле --- */
+  .pc-sec   { display: grid; grid-template-columns: 52px 1fr; column-gap: 24px;
+              padding: 28px 32px; border-top: 1px solid var(--rule);
+              counter-increment: pcsec; }
+  .pc-sec:nth-of-type(1) { animation-delay: .04s; }
+  .pc-sec:nth-of-type(2) { animation-delay: .10s; }
+  .pc-sec:nth-of-type(3) { animation-delay: .16s; }
+  .pc-sec:nth-of-type(4) { animation-delay: .22s; }
+  .pc-sec:nth-of-type(5) { animation-delay: .28s; }
+  .pc-sec:nth-of-type(6) { animation-delay: .34s; }
+  .pc-sec:nth-of-type(7) { animation-delay: .40s; }
+  .pc-sec:nth-of-type(8) { animation-delay: .46s; }
+  .pc-num   { font-family: var(--font-display); font-weight: 700; font-size: 38px;
+              letter-spacing: -.04em; line-height: .85; color: var(--text); }
+  .pc-num::before { content: counter(pcsec, decimal-leading-zero); }
+  .pc-secbody { border-left: 1px solid var(--rule); padding-left: 24px; min-width: 0; }
+  .pc-kick  { font-family: var(--font-text); font-weight: 500; font-size: 12px;
+              letter-spacing: .22em; text-transform: uppercase; color: var(--accent);
+              margin-bottom: 16px; }
+
+  /* --- Блок выбора (RadioCard) --- */
+  .pc-block { display: block; width: 100%; text-align: left; cursor: pointer;
+              border: 1px solid var(--rule); background: var(--surface);
+              padding: 15px 16px; transition: border-color .14s, background .14s; }
+  .pc-block:hover { border-color: var(--text); }
+  .pc-block[data-on='true'] { background: var(--invert-bg); border-color: var(--invert-bg); }
+  .pc-block:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .pc-bname { font-family: var(--font-display); font-weight: 700; font-size: 15px;
+              letter-spacing: -.01em; color: var(--text); }
+  .pc-block[data-on='true'] .pc-bname { color: var(--invert-text); }
+  .pc-bdesc { font-size: 12.5px; color: var(--text-2); margin-top: 6px; line-height: 1.4; }
+  .pc-block[data-on='true'] .pc-bdesc { color: var(--invert-text-2); }
+  .pc-sq    { width: 9px; height: 9px; flex: none; background: var(--accent); display: block; }
+
+  /* --- Поля ввода --- */
+  .pc-flab  { font-family: var(--font-mono); font-size: 11px; letter-spacing: .1em;
+              text-transform: uppercase; color: var(--text-2); margin-bottom: 9px;
+              display: block; }
+  .pc-input { width: 100%; background: transparent; border: 0;
+              border-bottom: 1.5px solid var(--text); border-radius: 0;
+              padding: 8px 2px; font-family: var(--font-text); font-size: 16px;
+              color: var(--text); transition: border-color .14s; }
+  .pc-input::placeholder { color: var(--text-3); }
+  .pc-input:focus { outline: 0; border-bottom-color: var(--accent); }
+  textarea.pc-input { resize: none; line-height: 1.5; }
+  .pc-num-field { font-family: var(--font-mono); font-weight: 500; font-size: 20px; }
+
+  /* --- Период подписки / мелкие табы --- */
+  .pc-period { font-family: var(--font-mono); font-size: 13px; cursor: pointer;
+               border: 1px solid var(--rule); background: var(--surface);
+               color: var(--text-2); padding: 9px 6px; text-align: center;
+               transition: .14s; }
+  .pc-period:hover { border-color: var(--text); }
+  .pc-period[data-on='true'] { background: var(--invert-bg); border-color: var(--invert-bg);
+                               color: var(--invert-text); }
+
+  /* --- Карточка модели киоска --- */
+  .pc-kiosk { display: block; width: 100%; text-align: left; cursor: pointer;
+              border: 1px solid var(--rule); background: var(--surface);
+              transition: border-color .14s; overflow: hidden; }
+  .pc-kiosk:hover { border-color: var(--text); }
+  .pc-kiosk[data-on='true'] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+
+  /* --- Чекбокс-опция --- */
+  .pc-opt   { display: flex; align-items: flex-start; gap: 12px; cursor: pointer;
+              padding: 9px 0; }
+  .pc-box   { width: 18px; height: 18px; flex: none; margin-top: 1px;
+              border: 1.5px solid var(--text); background: transparent;
+              display: flex; align-items: center; justify-content: center;
+              color: var(--bg); transition: .12s; }
+  .pc-opt[data-on='true'] .pc-box { background: var(--accent); border-color: var(--accent); }
+
+  /* --- Кнопки --- */
+  .pc-cta   { display: flex; align-items: center; justify-content: space-between;
+              gap: 16px; width: 100%; cursor: pointer;
+              background: var(--invert-bg); border: 1.5px solid var(--invert-bg);
+              box-shadow: 7px 7px 0 0 var(--accent);
+              padding: 18px 22px; transition: transform .13s, box-shadow .13s; }
+  .pc-cta:hover { transform: translate(4px, 4px); box-shadow: 3px 3px 0 0 var(--accent); }
+  .pc-cta:disabled { opacity: .35; cursor: not-allowed; transform: none;
+                     box-shadow: 4px 4px 0 0 var(--rule); }
+  .pc-cta-txt { font-family: var(--font-display); font-weight: 700; font-size: 16px;
+                letter-spacing: -.01em; color: var(--invert-text); }
+  .pc-cta-arr { font-family: var(--font-mono); font-weight: 500; font-size: 20px;
+                color: var(--accent); }
+
+  .pc-ghost { font-family: var(--font-mono); font-size: 12px; letter-spacing: .04em;
+              cursor: pointer; background: transparent; color: var(--text-2);
+              border: 1px solid var(--rule); padding: 8px 14px; transition: .14s; }
+  .pc-ghost:hover { border-color: var(--text); color: var(--text); }
+
+  /* --- Хинт / служебная плашка --- */
+  .pc-hint  { border-left: 3px solid var(--accent); background: var(--accent-soft);
+              padding: 11px 14px; font-size: 13px; color: var(--text); line-height: 1.5; }
+
+  .pc-step  { font-family: var(--font-mono); font-size: 11px; letter-spacing: .06em;
+              color: var(--text-2); white-space: nowrap; line-height: 1.6; }
+
+  /* ─── Preview-side компоненты ─── */
+
+  /* Заголовок документа КП */
+  .pc-doc-head  { padding: 30px 32px 6px; display: flex; align-items: flex-start;
+                  justify-content: space-between; gap: 24px; }
+  .pc-doc-title { font-family: var(--font-display); font-weight: 700; font-size: 32px;
+                  letter-spacing: -.03em; line-height: 1.05; color: var(--text);
+                  margin-top: 8px; }
+  .pc-tag       { display: inline-block; font-family: var(--font-mono); font-size: 11px;
+                  letter-spacing: .15em; text-transform: uppercase; padding: 4px 10px;
+                  color: var(--invert-text); }
+  .pc-tag--inno { background: var(--accent); color: #fff; }
+  .pc-tag--bonda{ background: var(--bonda); color: #fff; }
+  .pc-doc-meta  { font-family: var(--font-mono); font-size: 11px; letter-spacing: .04em;
+                  color: var(--text-2); text-align: right; line-height: 1.8; }
+
+  /* Секция превью (без номера, с заголовком) */
+  .pc-prevsec       { padding: 28px 32px; border-top: 1px solid var(--rule); }
+  .pc-prevsec-head  { display: flex; align-items: baseline; justify-content: space-between;
+                      gap: 16px; margin-bottom: 14px; }
+  .pc-prevsec-title { font-family: var(--font-display); font-weight: 700; font-size: 20px;
+                      letter-spacing: -.02em; color: var(--text); }
+  .pc-prevsec-count { font-family: var(--font-mono); font-size: 11px; color: var(--text-2);
+                      letter-spacing: .06em; margin-left: 10px; }
+  .pc-add           { font-family: var(--font-mono); font-size: 11px; letter-spacing: .04em;
+                      cursor: pointer; background: transparent; color: var(--accent);
+                      border: 1px solid var(--accent); padding: 6px 11px;
+                      transition: background .14s, color .14s; }
+  .pc-add:hover     { background: var(--accent); color: var(--bg); }
+  .pc-add:disabled  { opacity: .35; cursor: not-allowed; color: var(--text-3);
+                      border-color: var(--rule); background: transparent; }
+
+  /* Печатная таблица */
+  .pc-table             { width: 100%; border-collapse: collapse; }
+  .pc-table thead th    { font-family: var(--font-mono); font-size: 10.5px;
+                          letter-spacing: .14em; text-transform: uppercase;
+                          color: var(--text-2); padding: 10px 8px; text-align: left;
+                          border-bottom: 1px solid var(--rule); font-weight: 400; }
+  .pc-table th.num, .pc-table td.num { text-align: right; font-family: var(--font-mono); }
+  .pc-table th.ctr, .pc-table td.ctr { text-align: center; }
+  .pc-table tbody td    { padding: 11px 8px; border-bottom: 1px solid var(--rule);
+                          color: var(--text); font-size: 14px; vertical-align: top; }
+  .pc-table tbody tr    { transition: background .12s; }
+  .pc-table tbody tr:hover { background: var(--surface-2); }
+  .pc-table tfoot td    { padding: 14px 8px; border-top: 1.5px solid var(--text);
+                          font-family: var(--font-display); font-weight: 700; font-size: 13px;
+                          letter-spacing: .04em; color: var(--text); }
+  .pc-table tfoot td.num { font-family: var(--font-mono); font-size: 15px; letter-spacing: 0; }
+
+  /* Редактируемая ячейка */
+  .pc-cell      { cursor: pointer; padding: 4px 6px; transition: background .12s; display: block; }
+  .pc-cell:hover{ background: var(--surface-2); }
+  .pc-cell-input{ width: 100%; background: var(--surface); border: 0;
+                  border-bottom: 1.5px solid var(--accent); padding: 4px 6px;
+                  font: inherit; color: var(--text); outline: 0; }
+  .pc-cell-sub  { font-family: var(--font-mono); font-size: 10px; color: var(--text-3);
+                  text-align: right; margin-top: 2px; padding-right: 6px; }
+  .pc-cell-rm   { opacity: 0; color: var(--danger); background: transparent; border: 0;
+                  font-size: 12px; cursor: pointer; padding: 4px 6px; transition: opacity .12s; }
+  tr:hover .pc-cell-rm { opacity: .55; }
+  .pc-cell-rm:hover { opacity: 1 !important; }
+
+  /* Большой итог */
+  .pc-totalcard      { padding: 30px 32px 28px; border-top: 1.5px solid var(--text);
+                       display: grid; grid-template-columns: 1fr auto; gap: 24px;
+                       align-items: end; }
+  .pc-totalcard-kick { font-family: var(--font-mono); font-size: 11px; letter-spacing: .22em;
+                       text-transform: uppercase; color: var(--text-2); margin-bottom: 8px; }
+  .pc-totalcard-sum  { font-family: var(--font-display); font-weight: 700; font-size: 58px;
+                       line-height: .9; letter-spacing: -.04em; color: var(--text); }
+  .pc-totalcard-sum .pc-ruble { color: var(--accent); margin-left: .12em; }
+  .pc-totalcard-meta { font-family: var(--font-mono); font-size: 12px; color: var(--text-2);
+                       line-height: 1.7; text-align: right; }
+  .pc-totalcard-meta b { color: var(--text); font-weight: 500; }
+
+  /* Поповер каталога */
+  .pc-popover       { position: absolute; left: 0; top: 100%; margin-top: 6px;
+                      min-width: 340px; max-width: 460px; max-height: 50vh; overflow-y: auto;
+                      background: var(--surface); border: 1px solid var(--text);
+                      box-shadow: 4px 4px 0 0 var(--accent); z-index: 60; }
+  .pc-popover-glab  { font-family: var(--font-mono); font-size: 10px; letter-spacing: .14em;
+                      text-transform: uppercase; color: var(--text-2);
+                      background: var(--surface-2); padding: 8px 12px;
+                      position: sticky; top: 0; z-index: 1; }
+  .pc-popover-item  { width: 100%; text-align: left; cursor: pointer; padding: 11px 12px;
+                      display: flex; justify-content: space-between; align-items: baseline;
+                      gap: 12px; border-top: 1px solid var(--rule); background: transparent;
+                      transition: background .12s; }
+  .pc-popover-grp > .pc-popover-item:first-child { border-top: 0; }
+  .pc-popover-item:hover { background: var(--surface-2); }
+  .pc-popover-item[data-on='true'] { background: var(--accent-soft); }
+  .pc-popover-name   { font-size: 13.5px; color: var(--text); }
+  .pc-popover-specs  { font-family: var(--font-mono); font-size: 10.5px;
+                       color: var(--text-3); margin-top: 3px; }
+  .pc-popover-price  { font-family: var(--font-mono); font-size: 12px; color: var(--accent);
+                       white-space: nowrap; }
+  .pc-popover-empty  { padding: 16px; text-align: center; font-size: 13px; color: var(--text-3); }
+
+  /* Карандашик «переименовать вручную» */
+  .pc-pencil { opacity: 0; color: var(--text-2); background: transparent; border: 0;
+               cursor: pointer; padding: 2px 4px; transition: opacity .12s, color .12s; }
+  tr:hover .pc-pencil { opacity: .5; }
+  .pc-pencil:hover { opacity: 1 !important; color: var(--text); }
+
+  /* Предупреждение «секция не поддерживается шаблоном» */
+  .pc-warn { border-left: 3px solid var(--danger); padding: 11px 14px; font-size: 13px;
+             color: var(--text); margin-top: 12px;
+             background: color-mix(in srgb, var(--danger) 12%, transparent); }
+
+  /* Слайды-инфо у выгрузки */
+  .pc-slidesinfo { font-family: var(--font-mono); font-size: 11px; color: var(--text-2);
+                   letter-spacing: .04em; line-height: 1.8; }
+
+  /* Тост undo */
+  .pc-toast        { position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%);
+                     background: var(--surface); border: 1.5px solid var(--text);
+                     box-shadow: 6px 6px 0 0 var(--accent); padding: 12px 16px;
+                     display: flex; align-items: center; gap: 14px; z-index: 200;
+                     font-family: var(--font-text); color: var(--text); }
+  .pc-toast-msg    { font-size: 13px; }
+  .pc-toast-undo   { font-family: var(--font-mono); font-size: 12px; color: var(--accent);
+                     cursor: pointer; background: transparent; border: 0; padding: 4px 6px;
+                     letter-spacing: .06em; text-transform: uppercase; }
+  .pc-toast-undo:hover { color: var(--text); }
+  .pc-toast-close  { color: var(--text-2); cursor: pointer; background: transparent;
+                     border: 0; padding: 0 4px; font-size: 14px; }
 }
+

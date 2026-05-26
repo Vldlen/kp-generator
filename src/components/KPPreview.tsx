@@ -4,6 +4,13 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { formatMoney, recomputeLineTotal, type KPResult, type LineItem } from '@/lib/calculator'
 import type { ParsedRequest } from '@/lib/prompt'
 import type { DBProduct } from '@/lib/supabase'
+import {
+  generateKPPptx,
+  PPTX_TEMPLATE_LIMITS,
+  checkPptxOverflow,
+} from '@/lib/generatePptx'
+import { tablets, mounts, peripherals, periodMultiplier } from '@/lib/catalog'
+
 // Количество слайдов в шаблонах (без КП-слайда)
 const SLIDE_COUNTS: Record<string, { before: number; after: number }> = {
   qr:        { before: 3, after: 2 },  // inno_qr_template: 5 слайдов, КП после 3-го
@@ -11,12 +18,6 @@ const SLIDE_COUNTS: Record<string, { before: number; after: number }> = {
   kiosk:     { before: 4, after: 2 },  // inno_kiosk_template: 6 слайдов, КП после 4-го
   kiosk_pro: { before: 4, after: 2 },
 }
-import {
-  generateKPPptx,
-  PPTX_TEMPLATE_LIMITS,
-  checkPptxOverflow,
-} from '@/lib/generatePptx'
-import { tablets, mounts, peripherals, periodMultiplier } from '@/lib/catalog'
 
 // Маппинг реальных имён → обезличенные для КП. Используется как fallback,
 // если у продукта нет своего kp_name (Phase 9, H7).
@@ -84,21 +85,17 @@ function groupByCategory(products: DBProduct[]): { label: string; category: stri
 
 // --- Селектор продукта из каталога ---
 function ProductSelector({
-  currentName, catalog, onSelect, onClose, isInno,
+  currentName, catalog, onSelect, onClose,
 }: {
   currentName: string
   catalog: DBProduct[]
   onSelect: (product: DBProduct) => void
   onClose: () => void
-  isInno: boolean
 }) {
   const ref = useRef<HTMLDivElement>(null)
-
-  // Получаем альтернативы из той же категории
   const alternatives = getAlternatives(catalog, currentName)
   const groups = groupByCategory(alternatives)
 
-  // Закрытие по клику снаружи
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) onClose()
@@ -108,38 +105,29 @@ function ProductSelector({
   }, [onClose])
 
   return (
-    <div ref={ref} className="absolute z-50 left-0 top-full mt-1 min-w-[360px] w-max max-w-[480px] max-h-[50vh] overflow-y-auto rounded-xl bg-[#1e1e30] border border-white/20 shadow-2xl">
+    <div ref={ref} className="pc-popover">
       {groups.map(group => (
-        <div key={group.category}>
-          <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-white/30 bg-[#1e1e30] bg-white/5 sticky top-0 z-10">
-            {group.label}
-          </div>
-          {group.items.map(product => {
-            const isActive = product.name === currentName
-            return (
-              <button
-                key={product.id}
-                onClick={() => { onSelect(product); onClose() }}
-                className={`w-full text-left px-3 py-2.5 flex items-center justify-between hover:bg-white/10 transition text-sm ${
-                  isActive
-                    ? (isInno ? 'bg-orange-500/20 text-orange-300' : 'bg-purple-500/20 text-purple-300')
-                    : 'text-white/80'
-                }`}
-              >
-                <div className="mr-3">
-                  <div>{product.name}</div>
-                  {product.specs && (
-                    <div className="text-[10px] text-white/30 mt-0.5">{product.specs}</div>
-                  )}
-                </div>
-                <span className="text-xs text-white/40 whitespace-nowrap">{formatMoney(product.sell_price)}</span>
-              </button>
-            )
-          })}
+        <div key={group.category} className="pc-popover-grp">
+          <div className="pc-popover-glab">{group.label}</div>
+          {group.items.map(product => (
+            <button
+              key={product.id}
+              type="button"
+              className="pc-popover-item"
+              data-on={product.name === currentName}
+              onClick={() => { onSelect(product); onClose() }}
+            >
+              <div className="min-w-0">
+                <div className="pc-popover-name truncate">{product.name}</div>
+                {product.specs && <div className="pc-popover-specs">{product.specs}</div>}
+              </div>
+              <span className="pc-popover-price">{formatMoney(product.sell_price)}</span>
+            </button>
+          ))}
         </div>
       ))}
       {groups.length === 0 && (
-        <div className="px-3 py-4 text-sm text-white/30 text-center">Нет альтернатив в каталоге</div>
+        <div className="pc-popover-empty">Нет альтернатив в каталоге</div>
       )}
     </div>
   )
@@ -157,7 +145,7 @@ function EditableNumber({
 }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
-  const textAlign = align === 'right' ? 'text-right' : align === 'center' ? 'text-center' : 'text-left'
+  const textAlign: 'left' | 'right' | 'center' = align
 
   const display = format === 'money'
     ? formatMoney(value)
@@ -182,7 +170,8 @@ function EditableNumber({
           if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
           if (e.key === 'Escape') setEditing(false)
         }}
-        className={`w-full bg-white/10 border border-orange-500/50 rounded px-2 py-1 text-white text-sm outline-none ${textAlign}`}
+        className="pc-cell-input"
+        style={{ textAlign }}
       />
     )
   }
@@ -190,17 +179,18 @@ function EditableNumber({
   return (
     <div
       onClick={() => { setEditing(true); setDraft(String(value)) }}
-      className={`cursor-pointer hover:bg-white/10 rounded px-2 py-1 -mx-2 -my-1 transition ${textAlign}`}
+      className="pc-cell"
+      style={{ textAlign }}
       title="Кликните для редактирования"
     >
       {format === 'percent' && value > 0
-        ? <span className="text-green-400">{display}</span>
-        : <>{display}{suffix && <span className="text-white/40 ml-0.5">{suffix}</span>}</>}
+        ? <span style={{ color: 'var(--accent)' }}>{display}</span>
+        : <>{display}{suffix && <span style={{ color: 'var(--text-3)', marginLeft: 2 }}>{suffix}</span>}</>}
     </div>
   )
 }
 
-// --- Редактируемое название ---
+// --- Редактируемое название (карандашик) ---
 function EditableName({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(value)
@@ -220,18 +210,19 @@ function EditableName({ value, onChange }: { value: string; onChange: (v: string
           if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
           if (e.key === 'Escape') { setEditing(false); setDraft(value) }
         }}
-        className="w-full bg-white/10 border border-orange-500/50 rounded px-2 py-1 text-white text-sm outline-none"
+        className="pc-cell-input"
       />
     )
   }
 
   return (
     <button
+      type="button"
       onClick={(e) => { e.stopPropagation(); setEditing(true); setDraft(value) }}
-      className="opacity-0 group-hover:opacity-40 hover:!opacity-100 text-white/50 transition p-0.5 flex-shrink-0"
+      className="pc-pencil"
       title="Редактировать название"
     >
-      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
       </svg>
     </button>
@@ -256,7 +247,7 @@ function isSubscription(item: LineItem): boolean {
 
 // ====== MAIN COMPONENT ======
 
-const BUILD_TAG = '2026-05-14-pptx'
+const BUILD_TAG = '2026-05-14-pechatny-tseh'
 
 // Снапшот удаления для undo-toast
 type Removal =
@@ -272,18 +263,13 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
   const [sections, setSections] = useState(
     kp.sections.map(s => ({ ...s, items: s.items.map(i => ({ ...i })) }))
   )
-  // Какой селектор каталога открыт: [sectionIndex, itemIndex] или null
   const [openSelector, setOpenSelector] = useState<[number, number] | null>(null)
-  // Снапшот последнего удаления для undo-toast (null = нет активного toast'а)
   const [lastRemoval, setLastRemoval] = useState<Removal | null>(null)
   const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const grandTotal = sections.reduce((sum, s) => sum + s.subtotal, 0)
 
-  // Реактивный пересчёт ежемесячного платежа — раньше показывался kp.monthlyTotal,
-  // который не обновлялся при правках цены/qty/discount лицензии в preview.
-  // Теперь делим текущий total строки лицензии на число месяцев подписки.
-  // Когда (Phase 3) LineItem получит явное поле months, эта формула упростится.
+  // Реактивный пересчёт ежемесячного платежа.
   const monthlyTotal = (() => {
     const licenseSection = sections.find(s => s.title === 'Лицензии и подписки')
     if (!licenseSection || licenseSection.items.length === 0) return 0
@@ -293,7 +279,6 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
     return Math.round(licenseTotal / months)
   })()
 
-  // Очистка таймера undo при размонтировании
   useEffect(() => {
     return () => {
       if (undoTimerRef.current) clearTimeout(undoTimerRef.current)
@@ -310,8 +295,6 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
     setLastRemoval(null)
   }, [])
 
-  // Замена позиции на продукт из каталога (имя обезличивается автоматически —
-  // приоритет kp_name из продукта, иначе fallback на встроенный kpNameMap).
   const replaceWithProduct = useCallback((si: number, ii: number, product: DBProduct) => {
     setSections(prev => {
       const next = prev.map(s => ({ ...s, items: s.items.map(i => ({ ...i })) }))
@@ -328,7 +311,6 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
     })
   }, [])
 
-  // Обновить числовое поле
   const updateField = useCallback((si: number, ii: number, field: 'qty' | 'unitPrice' | 'discount', value: number) => {
     setSections(prev => {
       const next = prev.map(s => ({ ...s, items: s.items.map(i => ({ ...i })) }))
@@ -349,7 +331,6 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
       const sectionSnapshot = { ...next[si], items: next[si].items.map(i => ({ ...i })) }
       next[si].items.splice(ii, 1)
       if (next[si].items.length === 0) {
-        // Секция опустошилась — удаляем её и запоминаем для undo
         next.splice(si, 1)
         setLastRemoval({
           kind: 'item',
@@ -380,16 +361,13 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
       const next = prev.map(s => ({ ...s, items: s.items.map(i => ({ ...i })) }))
       if (lastRemoval.kind === 'item') {
         if (lastRemoval.sectionWasDeleted) {
-          // Восстанавливаем секцию целиком
           next.splice(lastRemoval.sectionIndex, 0, lastRemoval.section)
         } else {
-          // Вставляем item на исходное место + пересчёт subtotal
           const si = Math.min(lastRemoval.sectionIndex, next.length - 1)
           next[si].items.splice(lastRemoval.itemIndex, 0, lastRemoval.item)
           next[si] = recalcSection(next[si])
         }
       } else {
-        // section
         next.splice(lastRemoval.sectionIndex, 0, lastRemoval.section)
       }
       return next
@@ -412,7 +390,6 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
     })
   }, [])
 
-  // Переименовать позицию (свободный текст — не влияет на расчёт)
   const updateName = useCallback((si: number, ii: number, name: string) => {
     setSections(prev => {
       const next = prev.map(s => ({ ...s, items: s.items.map(i => ({ ...i })) }))
@@ -421,23 +398,16 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
     })
   }, [])
 
-  // addSection раньше создавал секцию с title='Дополнительно', которой не было
-  // в списке известных заголовков generatePptx → секция терялась в .pptx, но
-  // grandTotal её включал (P0-2 в аудите 2026-05-14). Кнопка удалена, функция
-  // тоже. Если в будущем понадобится — нужно сначала поддержать 4-ю карточку
-  // в шаблоне .pptx.
+  // addSection раньше создавал секцию с title='Дополнительно' — теряется в .pptx
+  // (P0-2 в аудите 2026-05-14). Кнопка и функция удалены.
 
-  // Собрать актуальный KPResult — sections / grandTotal / monthlyTotal
-  // пересчитываются по правкам пользователя в preview.
+  // Собрать актуальный KPResult.
   const getCurrentKP = (): KPResult => ({ ...kp, sections, grandTotal, monthlyTotal })
 
-  // PPTX — генерация презентации
   const handleDownloadPPTX = async () => {
     const currentKP = getCurrentKP()
 
-    // Watchdog: проверяем лимиты шаблона перед выгрузкой.
-    // Без этой проверки лишние строки молча обрежутся (P0-1) и/или секции
-    // с неизвестным заголовком потеряются целиком (P0-2). См. аудит 2026-05-14.
+    // Watchdog: проверяем лимиты шаблона перед выгрузкой (см. P0-1/P0-2 в аудите).
     const overflow = checkPptxOverflow(currentKP)
     if (overflow.length > 0) {
       const lines = overflow.map(issue => {
@@ -465,260 +435,250 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
     }
   }
 
-  // --- Определяем: это позиция из каталога или свободная ---
   const isCatalogItem = (name: string) => !!findProductByName(catalog, name)
 
+  const slidesBefore = SLIDE_COUNTS[parsed.license_type || 'kiosk']?.before ?? 3
+  const slidesAfter  = SLIDE_COUNTS[parsed.license_type || 'kiosk']?.after  ?? 2
+
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center gap-3 mb-4">
-        <div className={`px-3 py-1 rounded-full text-xs font-medium ${
-          isInno ? 'bg-orange-500/20 text-orange-400' : 'bg-purple-500/20 text-purple-400'
-        }`}>
-          {isInno ? 'ИННО' : 'БОНДА'}
+    <>
+      {/* Шапка документа КП */}
+      <div className="pc-doc-head pc-rise">
+        <div>
+          <span className={`pc-tag ${isInno ? 'pc-tag--inno' : 'pc-tag--bonda'}`}>
+            {isInno ? 'ИННО' : 'БОНДА'}
+          </span>
+          <h2 className="pc-doc-title">{kp.clientName}</h2>
         </div>
-        <h2 className="text-xl font-bold text-white">{kp.clientName}</h2>
-        <span className="text-sm text-white/40">{kp.date}</span>
+        <div className="pc-doc-meta">
+          {kp.date}
+          <br />
+          <span style={{ color: 'var(--text-3)' }}>{kp.paymentType}</span>
+        </div>
       </div>
 
-      {/* Hint */}
-      <div className="rounded-lg bg-blue-500/10 border border-blue-500/20 px-4 py-2 text-xs text-blue-300">
-        Кликните на название — выбор из каталога с ценой. Кликните на число — ручная правка. Итоги пересчитываются автоматически.
+      {/* Подсказка */}
+      <div className="pc-rise" style={{ padding: '16px 32px 0' }}>
+        <div className="pc-hint">
+          Кликните на название — выбор из каталога. Кликните на число — ручная правка. Итоги пересчитываются автоматически.
+        </div>
       </div>
 
-      {/* Sections */}
+      {/* Секции — печатные таблицы */}
       {sections.map((section, si) => {
         const sectionLimit = PPTX_TEMPLATE_LIMITS[section.title]
         const atLimit = sectionLimit !== undefined && section.items.length >= sectionLimit
         const knownSection = sectionLimit !== undefined
         return (
-        <div key={si} className="rounded-xl bg-white/5 border border-white/10 overflow-visible">
-          <div className={`px-4 py-2 text-sm font-medium flex items-center justify-between gap-3 ${
-            isInno ? 'bg-orange-500/10 text-orange-400' : 'bg-purple-500/10 text-purple-400'
-          }`}>
-            <span className="flex items-center gap-2">
-              {section.title}
-              {knownSection && (
-                <span className="text-[10px] text-white/40 font-normal">
-                  {section.items.length}/{sectionLimit}
-                </span>
-              )}
-            </span>
-            <button
-              onClick={() => addItem(si)}
-              disabled={atLimit}
-              title={atLimit ? `В шаблоне .pptx максимум ${sectionLimit} строк в этой секции` : 'Добавить позицию'}
-              className={`text-xs transition px-2 py-0.5 rounded bg-white/5 ${
-                atLimit
-                  ? 'opacity-30 cursor-not-allowed'
-                  : 'opacity-60 hover:opacity-100 hover:bg-white/10'
-              }`}
-            >
-              + Добавить
-            </button>
-          </div>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-white/40 border-b border-white/5">
-                <th className="text-left px-4 py-2">Наименование</th>
-                <th className="text-center px-4 py-2 w-16">Кол-во</th>
-                <th className="text-right px-4 py-2 w-28">Цена</th>
-                <th className="text-center px-4 py-2 w-20">Скидка</th>
-                <th className="text-right px-4 py-2 w-28">Сумма</th>
-                <th className="w-8"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {section.items.map((item, ii) => {
-                const hasCatalog = isCatalogItem(item.name) || item.name === 'Новая позиция'
-                const selectorOpen = openSelector?.[0] === si && openSelector?.[1] === ii
-
-                return (
-                  <tr key={ii} className="border-b border-white/5 group">
-                    {/* Название — клик открывает каталог, карандаш — ручная правка */}
-                    <td className="px-4 py-2 text-white/80 relative">
-                      <div className="flex items-center gap-1">
-                        <div
-                          onClick={() => {
-                            if (selectorOpen) {
-                              setOpenSelector(null)
-                            } else {
-                              setOpenSelector([si, ii])
-                            }
-                          }}
-                          className={`cursor-pointer hover:bg-white/10 rounded px-2 py-1 -mx-2 -my-1 transition flex items-center gap-2 flex-1 min-w-0 ${
-                            selectorOpen ? 'bg-white/10' : ''
-                          }`}
-                        >
-                          <span className="truncate">{item.name}</span>
-                          {hasCatalog && (
-                            <svg className="w-3 h-3 text-white/30 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                            </svg>
-                          )}
-                        </div>
-                        <EditableName value={item.name} onChange={v => updateName(si, ii, v)} />
-                      </div>
-                      {selectorOpen && (
-                        <ProductSelector
-                          currentName={item.name}
-                          catalog={catalog}
-                          isInno={isInno}
-                          onSelect={product => replaceWithProduct(si, ii, product)}
-                          onClose={() => setOpenSelector(null)}
-                        />
-                      )}
-                    </td>
-                    {/* Кол-во */}
-                    <td className="px-4 py-2 text-white/60">
-                      <EditableNumber
-                        value={item.qty}
-                        onChange={v => updateField(si, ii, 'qty', v)}
-                        format="plain"
-                        align="center"
-                      />
-                    </td>
-                    {/* Цена. Для подписочных строк (item.months > 1) подпись
-                        «/мес» в значении и «× N мес» строкой ниже. */}
-                    <td className="px-4 py-2 text-white/60">
-                      <EditableNumber
-                        value={item.unitPrice}
-                        onChange={v => updateField(si, ii, 'unitPrice', v)}
-                        format="money"
-                        align="right"
-                        suffix={isSubscription(item) ? '/мес' : undefined}
-                      />
-                      {isSubscription(item) && (
-                        <div className="text-[10px] text-white/30 text-right -mt-1">
-                          × {item.months} мес
-                        </div>
-                      )}
-                    </td>
-                    {/* Скидка */}
-                    <td className="px-4 py-2 text-white/60">
-                      <EditableNumber
-                        value={item.discount}
-                        onChange={v => updateField(si, ii, 'discount', v)}
-                        format="percent"
-                        align="center"
-                      />
-                    </td>
-                    {/* Сумма (auto) */}
-                    <td className="px-4 py-2 text-right text-white font-medium">
-                      {formatMoney(item.total)}
-                    </td>
-                    {/* Удалить */}
-                    <td className="px-1 py-2">
-                      <button
-                        onClick={() => removeItem(si, ii)}
-                        className="opacity-0 group-hover:opacity-40 hover:!opacity-100 text-red-400 transition text-xs p-1"
-                        title="Удалить"
-                      >
-                        ✕
-                      </button>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-            <tfoot>
-              <tr className="bg-white/5">
-                <td colSpan={4} className="px-4 py-2 text-right text-white/60 font-medium">Итого:</td>
-                <td className="px-4 py-2 text-right text-white font-bold">{formatMoney(section.subtotal)}</td>
-                <td></td>
-              </tr>
-            </tfoot>
-          </table>
-          {!knownSection && (
-            <div className="px-4 py-2 text-xs text-amber-300/80 bg-amber-500/5 border-t border-amber-500/20">
-              ⚠ Секция «{section.title}» не поддерживается шаблоном .pptx и не будет показана клиенту. Перенесите позиции в Оборудование / Лицензии и подписки / Услуги.
+          <section key={si} className="pc-prevsec pc-rise">
+            <div className="pc-prevsec-head">
+              <div>
+                <span className="pc-prevsec-title">{section.title}</span>
+                {knownSection && (
+                  <span className="pc-prevsec-count">{section.items.length} / {sectionLimit}</span>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => addItem(si)}
+                disabled={atLimit}
+                title={atLimit ? `В шаблоне .pptx максимум ${sectionLimit} строк в этой секции` : 'Добавить позицию'}
+                className="pc-add"
+              >
+                + позиция
+              </button>
             </div>
-          )}
-        </div>
+
+            <table className="pc-table">
+              <thead>
+                <tr>
+                  <th>Наименование</th>
+                  <th className="ctr" style={{ width: 70 }}>Кол-во</th>
+                  <th className="num" style={{ width: 130 }}>Цена</th>
+                  <th className="ctr" style={{ width: 80 }}>Скидка</th>
+                  <th className="num" style={{ width: 130 }}>Сумма</th>
+                  <th style={{ width: 30 }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {section.items.map((item, ii) => {
+                  const hasCatalog = isCatalogItem(item.name) || item.name === 'Новая позиция'
+                  const selectorOpen = openSelector?.[0] === si && openSelector?.[1] === ii
+
+                  return (
+                    <tr key={ii}>
+                      {/* Название */}
+                      <td style={{ position: 'relative' }}>
+                        <div className="flex items-center gap-1">
+                          <div
+                            onClick={() => {
+                              if (selectorOpen) setOpenSelector(null)
+                              else setOpenSelector([si, ii])
+                            }}
+                            className="pc-cell flex-1 min-w-0 flex items-center gap-2"
+                            style={{ textAlign: 'left' }}
+                          >
+                            <span className="truncate" style={{ color: 'var(--text)' }}>{item.name}</span>
+                            {hasCatalog && (
+                              <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                                style={{ color: 'var(--text-3)', flexShrink: 0 }}>
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
+                              </svg>
+                            )}
+                          </div>
+                          <EditableName value={item.name} onChange={v => updateName(si, ii, v)} />
+                        </div>
+                        {selectorOpen && (
+                          <ProductSelector
+                            currentName={item.name}
+                            catalog={catalog}
+                            onSelect={product => replaceWithProduct(si, ii, product)}
+                            onClose={() => setOpenSelector(null)}
+                          />
+                        )}
+                      </td>
+
+                      {/* Кол-во */}
+                      <td className="ctr">
+                        <EditableNumber
+                          value={item.qty}
+                          onChange={v => updateField(si, ii, 'qty', v)}
+                          format="plain"
+                          align="center"
+                        />
+                      </td>
+
+                      {/* Цена. Для подписок — суффикс «/мес» + «× N мес» снизу. */}
+                      <td className="num">
+                        <EditableNumber
+                          value={item.unitPrice}
+                          onChange={v => updateField(si, ii, 'unitPrice', v)}
+                          format="money"
+                          align="right"
+                          suffix={isSubscription(item) ? '/мес' : undefined}
+                        />
+                        {isSubscription(item) && (
+                          <div className="pc-cell-sub">× {item.months} мес</div>
+                        )}
+                      </td>
+
+                      {/* Скидка */}
+                      <td className="ctr">
+                        <EditableNumber
+                          value={item.discount}
+                          onChange={v => updateField(si, ii, 'discount', v)}
+                          format="percent"
+                          align="center"
+                        />
+                      </td>
+
+                      {/* Сумма */}
+                      <td className="num" style={{ fontFamily: 'var(--font-mono)', fontWeight: 500 }}>
+                        {formatMoney(item.total)}
+                      </td>
+
+                      {/* Удалить */}
+                      <td style={{ textAlign: 'right' }}>
+                        <button
+                          type="button"
+                          onClick={() => removeItem(si, ii)}
+                          className="pc-cell-rm"
+                          title="Удалить"
+                          aria-label="Удалить позицию"
+                        >
+                          ✕
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td colSpan={4} style={{ textAlign: 'right' }}>Итого</td>
+                  <td className="num">{formatMoney(section.subtotal)}</td>
+                  <td></td>
+                </tr>
+              </tfoot>
+            </table>
+
+            {!knownSection && (
+              <div className="pc-warn">
+                ⚠ Секция «{section.title}» не поддерживается шаблоном .pptx и не попадёт в финальную выгрузку. Перенесите позиции в «Оборудование» / «Лицензии и подписки» / «Услуги».
+              </div>
+            )}
+          </section>
         )
       })}
 
-      {/* Кнопка «+ Добавить секцию» удалена (баг P0-2 в аудите 2026-05-14):
-          секции с title != 'Оборудование'/'Лицензии и подписки'/'Услуги' молча
-          теряются в .pptx, но входят в grandTotal. До поддержки 4-й карточки
-          в шаблоне функция намеренно недоступна. */}
-
-      {/* Grand Total */}
-      <div className={`rounded-xl p-4 text-center ${
-        isInno ? 'bg-gradient-to-r from-orange-500/20 to-orange-600/20 border border-orange-500/30'
-               : 'bg-gradient-to-r from-purple-500/20 to-purple-600/20 border border-purple-500/30'
-      }`}>
-        <div className="text-sm text-white/50 mb-1">Общая стоимость</div>
-        <div className="text-3xl font-bold text-white">{formatMoney(grandTotal)}</div>
-        {monthlyTotal > 0 && (
-          <div className="text-sm text-white/50 mt-1">Ежемесячный платёж: {formatMoney(monthlyTotal)}</div>
-        )}
-        <div className="text-xs text-white/30 mt-2">{kp.paymentType}</div>
-      </div>
-
-      {/* Slides info */}
-      <div className="rounded-xl bg-white/5 border border-white/10 p-4">
-        <div className="text-sm text-white/50 mb-2">В презентации будет:</div>
-        <div className="grid grid-cols-2 gap-2 text-xs text-white/40">
-          <div><span className="text-white/60">До КП:</span> {(SLIDE_COUNTS[parsed.license_type || 'kiosk']?.before || 3)} слайдов</div>
-          <div><span className="text-white/60">После КП:</span> {(SLIDE_COUNTS[parsed.license_type || 'kiosk']?.after || 2)} слайдов</div>
+      {/* К оплате */}
+      <div className="pc-totalcard pc-rise">
+        <div>
+          <div className="pc-totalcard-kick">К оплате</div>
+          <div className="pc-totalcard-sum">
+            {Math.round(grandTotal).toLocaleString('ru-RU')}&nbsp;<span className="pc-ruble">₽</span>
+          </div>
         </div>
-        <div className="text-[10px] text-white/20 mt-2 text-right">build: {BUILD_TAG}</div>
+        <div className="pc-totalcard-meta">
+          {monthlyTotal > 0 && (
+            <>в т.ч. ежемесячно <b>{Math.round(monthlyTotal).toLocaleString('ru-RU')}&nbsp;₽</b><br /></>
+          )}
+          {kp.paymentType}
+        </div>
       </div>
 
-      {/* Download PPTX */}
-      <div className="flex gap-3">
+      {/* Выгрузка */}
+      <div className="pc-rise" style={{ padding: '24px 32px 32px', borderTop: '1px solid var(--rule)' }}>
+        <div className="pc-slidesinfo flex items-baseline justify-between mb-4">
+          <span>в презентации: {slidesBefore} слайдов до КП · {slidesAfter} после</span>
+          <span style={{ color: 'var(--text-3)' }}>build · {BUILD_TAG}</span>
+        </div>
         <button
+          type="button"
           onClick={handleDownloadPPTX}
           disabled={generating}
-          className={`flex-1 py-3 rounded-xl font-medium text-white transition-all ${
-            generating ? 'opacity-60 cursor-wait' : ''
-          } ${isInno ? 'bg-orange-500 hover:bg-orange-600' : 'bg-purple-500 hover:bg-purple-600'}`}
+          className="pc-cta"
         >
-          {generating ? (
-            <span className="flex items-center justify-center gap-2">
-              <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+          <span className="pc-cta-txt">
+            {generating ? 'Генерация .pptx…' : 'Скачать презентацию'}
+          </span>
+          <span className="pc-cta-arr">
+            {generating ? (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="animate-spin">
+                <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" opacity=".25" />
+                <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
               </svg>
-              Генерация PPTX...
-            </span>
-          ) : 'Скачать PPTX-презентацию'}
+            ) : '↓'}
+          </span>
         </button>
       </div>
 
-      {/* Undo-toast — показывается 6 секунд после удаления позиции/секции */}
+      {/* Undo-toast — paper card с офсетной тенью */}
       {lastRemoval && (
         <div
           role="status"
           aria-live="polite"
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-xl bg-[#1e1e30] border border-white/20 shadow-2xl px-4 py-3 animate-fade-in"
+          className="pc-toast animate-fade-in"
         >
-          <svg className="w-4 h-4 text-white/50 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+            style={{ color: 'var(--text-2)' }}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
           </svg>
-          <span className="text-sm text-white/80">
+          <span className="pc-toast-msg">
             {lastRemoval.kind === 'item'
               ? (lastRemoval.sectionWasDeleted
-                  ? `Удалена секция: «${lastRemoval.section.title}»`
-                  : `Удалено: «${lastRemoval.item.name}»`)
-              : `Удалена секция: «${lastRemoval.section.title}»`}
+                  ? <>Удалена секция: <b>{lastRemoval.section.title}</b></>
+                  : <>Удалено: <b>{lastRemoval.item.name}</b></>)
+              : <>Удалена секция: <b>{lastRemoval.section.title}</b></>}
           </span>
-          <button
-            onClick={undoLastRemoval}
-            className="text-sm font-medium text-orange-400 hover:text-orange-300 px-2 py-1 rounded transition"
-          >
+          <button type="button" onClick={undoLastRemoval} className="pc-toast-undo">
             Отменить
           </button>
-          <button
-            onClick={dismissUndo}
-            className="text-white/40 hover:text-white/70 px-1 transition"
-            aria-label="Закрыть"
-          >
+          <button type="button" onClick={dismissUndo} className="pc-toast-close" aria-label="Закрыть">
             ✕
           </button>
         </div>
       )}
-    </div>
+    </>
   )
 }
