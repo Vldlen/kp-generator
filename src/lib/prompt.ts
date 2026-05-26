@@ -26,10 +26,18 @@ export interface ParsedRequest {
   // Ключи из INNO_ADDON_LICENSES (catalog.ts). Например ['queue'] —
   // Электронная очередь добавится отдельной строкой в «Лицензии и подписки».
   additional_licenses: string[]
+  /** Включён ли фискальный пакет (BG-1..5, 2026-05-26).
+   *  Для Kiosk PRO дефолт true (у клиента нет своей кассы — нужна фискалка).
+   *  Для планшетного Kiosk дефолт false (чаще клиент со своей iiko-кассой).
+   *  Конкретный состав пакета определяется группой выбранного киоска. */
+  fiscal_pack: boolean
   // Internal fields for calculator (populated by page.tsx)
   _kiosk_name?: string
   _kiosk_price?: number
   _kiosk_mount_name?: string
   _kiosk_mount_price?: number
   _kiosk_options_data?: Array<{ name: string; price: number }>
+  /** Группа выбранного киоска из Google Sheets — нужна calculator'у
+   *  для лукапа фискального паттерна по getFiscalConfigByGroup. */
+  _kiosk_group?: string | null
 }

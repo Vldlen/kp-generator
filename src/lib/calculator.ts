@@ -6,6 +6,8 @@ import {
   services, innoLicenses, findirTariffs,
   getLicensePrice, getFindirPrice, periodMultiplier,
   getProductById, INNO_LICENSE_PRICES, INNO_ADDON_LICENSES,
+  FISCAL_DEVICES, getFiscalConfigByGroup, TABLET_KIOSK_FISCAL_CONFIG,
+  type FiscalConfig,
   type SubscriptionPeriod,
 } from './catalog'
 
@@ -35,6 +37,31 @@ export function lineMonths(item: LineItem): number {
 /** Перерасчёт total из qty/unitPrice/discount/months. Источник истины для preview. */
 export function recomputeLineTotal(item: LineItem): number {
   return Math.round(item.unitPrice * item.qty * lineMonths(item) * (1 - item.discount / 100))
+}
+
+/** Собирает строки оборудования для фискального пакета по конфигу + qty.
+ *  Используется в обеих ветках (kiosk / kiosk_pro). Для каждой строки
+ *  создаётся отдельный LineItem — менеджер сможет менять qty в превью
+ *  (например, поставить 1 ФР на 2 планшета — см. правила фискалки). */
+function buildFiscalLineItems(config: FiscalConfig, qty: number): LineItem[] {
+  if (qty <= 0) return []
+  const out: LineItem[] = []
+  const mkItem = (name: string, unitPrice: number): LineItem => ({
+    name, category: 'fiscal', qty, unitPrice, discount: 0, total: unitPrice * qty,
+  })
+  if (config.pattern === 'internal') {
+    out.push(mkItem(FISCAL_DEVICES.atol42fa.name, FISCAL_DEVICES.atol42fa.price))
+    out.push(mkItem(FISCAL_DEVICES.fn15.name,     FISCAL_DEVICES.fn15.price))
+    if (config.includeBuiltinPrinter === 'p80') {
+      out.push(mkItem(FISCAL_DEVICES.printer80.name, FISCAL_DEVICES.printer80.price))
+    } else if (config.includeBuiltinPrinter === 'p58') {
+      out.push(mkItem(FISCAL_DEVICES.printer58.name, FISCAL_DEVICES.printer58.price))
+    }
+  } else if (config.pattern === 'external') {
+    out.push(mkItem(FISCAL_DEVICES.poscenter02f.name, FISCAL_DEVICES.poscenter02f.price))
+    out.push(mkItem(FISCAL_DEVICES.fn15.name,         FISCAL_DEVICES.fn15.price))
+  }
+  return out
 }
 
 export interface KPResult {
@@ -143,6 +170,13 @@ export function calculateKP(req: ParsedRequest): KPResult {
       })
     }
 
+    // Фискальный пакет (BG-1..5, 2026-05-26). Для планшетного Kiosk — паттерн B
+    // (внешний POScenter-02Ф Cover + ФН 15). Дефолт ВЫКЛ — добавляется только
+    // если менеджер поставил галку в форме (у клиента нет своей iiko-кассы).
+    if (req.fiscal_pack) {
+      equipItems.push(...buildFiscalLineItems(TABLET_KIOSK_FISCAL_CONFIG, req.devices))
+    }
+
     if (equipItems.length > 0) {
       const subtotal = equipItems.reduce((sum, i) => sum + i.total, 0)
       sections.push({
@@ -205,6 +239,18 @@ export function calculateKP(req: ParsedRequest): KPResult {
           discount: 0,
           total: opt.price * req.devices,
         })
+      }
+    }
+
+    // Фискальный пакет (BG-1..5, 2026-05-26). Состав определяется группой
+    // выбранного киоска через getFiscalConfigByGroup. Если правило не задано
+    // (новая модель в Sheets без записи в KIOSK_FISCAL_RULES) — фискалка
+    // не добавляется молча. Менеджер увидит что фискального пакета нет и
+    // либо добавит модель в правила, либо положит позиции руками в превью.
+    if (req.fiscal_pack && req._kiosk_group) {
+      const fiscalCfg = getFiscalConfigByGroup(req._kiosk_group)
+      if (fiscalCfg) {
+        equipItems.push(...buildFiscalLineItems(fiscalCfg, req.devices))
       }
     }
 

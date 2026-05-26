@@ -11,6 +11,9 @@ import {
   tablets,
   INNO_LICENSE_PRICES,
   INNO_ADDON_LICENSES,
+  getFiscalConfigByGroup,
+  getFiscalPackPreview,
+  TABLET_KIOSK_FISCAL_CONFIG,
   type SubscriptionPeriod,
 } from '@/lib/catalog'
 import { fetchAllCatalog, type DBProduct } from '@/lib/supabase'
@@ -35,6 +38,7 @@ const defaultForm: ParsedRequest = {
   notes: '',
   selected_kiosk_options: [],
   additional_licenses: [],
+  fiscal_pack: false,  // авто-выставится при выборе license_type (см. update())
 }
 
 // Маппинг старых категорий catalog.ts → новые
@@ -145,6 +149,11 @@ export default function Home() {
         } else {
           next.findir_tariff = null
         }
+        // Фискальный пакет (BG-1..5): авто-дефолт по типу лицензии.
+        // Kiosk PRO — ВКЛ (у клиента нет своей кассы, нужна фискалка).
+        // Планшетный Kiosk — ВЫКЛ (чаще клиент со своей iiko-кассой).
+        // Остальные — false (фискалка нерелевантна для QR/Ecomm/БОНДА).
+        next.fiscal_pack = value === 'kiosk_pro'
         // QR и Ecomm не требуют устройств
         if (value === 'qr' || value === 'ecomm') {
           next.devices = 0
@@ -225,6 +234,8 @@ export default function Home() {
       if (kiosk) {
         enrichedForm._kiosk_name = kiosk.name
         enrichedForm._kiosk_price = kiosk.sell_price
+        // BG-1..5: группа нужна calculator'у для лукапа фискального паттерна.
+        enrichedForm._kiosk_group = kiosk.group
 
         // Find mount if non-default
         const kioskGroup = kiosk.group
@@ -636,6 +647,56 @@ export default function Home() {
                 </div>
               </Section>
             )}
+
+            {/* Фискальный пакет (BG-1..5) — для ИННО оборудования (Kiosk / Kiosk PRO).
+                Состав определяется автоматически по модели киоска. Дефолт ВКЛ для
+                Kiosk PRO, ВЫКЛ для планшетного Kiosk. */}
+            {isInno && (form.license_type === 'kiosk' ||
+                        (form.license_type === 'kiosk_pro' && form.selected_kiosk_id)) && (() => {
+              const fiscalCfg = form.license_type === 'kiosk_pro'
+                ? getFiscalConfigByGroup(catalog.find(p => p.id === form.selected_kiosk_id)?.group)
+                : TABLET_KIOSK_FISCAL_CONFIG
+              if (!fiscalCfg) return null
+              const items = getFiscalPackPreview(fiscalCfg)
+              if (items.length === 0) return null
+              const sum = items.reduce((s, i) => s + i.price, 0)
+              const label = fiscalCfg.pattern === 'internal'
+                ? 'Внутренняя фискализация (Атол 42 ФА внутрь киоска)'
+                : 'Внешняя фискализация (POScenter-02Ф рядом с киоском)'
+              return (
+                <Section title="Фискальный пакет">
+                  <label
+                    className="pc-opt"
+                    data-on={form.fiscal_pack}
+                    onClick={() => update('fiscal_pack', !form.fiscal_pack)}
+                  >
+                    <span className="pc-box">{form.fiscal_pack && <Check />}</span>
+                    <span className="flex-1 min-w-0">
+                      <span className="text-sm text-[var(--text)]">Фискальный пакет</span>
+                      <div className="mt-2 space-y-1 text-xs text-[var(--text-2)]">
+                        <div className="font-mono uppercase tracking-wider text-[10px] text-[var(--text-3)]">
+                          {label}
+                        </div>
+                        {items.map((item, idx) => (
+                          <div key={idx} className="flex justify-between items-baseline gap-3">
+                            <span>{item.name}</span>
+                            <span className="font-mono text-[var(--accent)] whitespace-nowrap">
+                              {item.price.toLocaleString('ru-RU')} ₽
+                            </span>
+                          </div>
+                        ))}
+                        <div className="flex justify-between items-baseline gap-3 pt-2 border-t border-[var(--rule)]">
+                          <span>За 1 устройство</span>
+                          <span className="font-mono text-[var(--accent)] whitespace-nowrap">
+                            {sum.toLocaleString('ru-RU')} ₽
+                          </span>
+                        </div>
+                      </div>
+                    </span>
+                  </label>
+                </Section>
+              )
+            })()}
 
             {/* Дополнительные лицензии — только ИННО, поверх любой основной */}
             {isInno && form.license_type && (

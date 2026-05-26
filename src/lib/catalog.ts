@@ -584,6 +584,112 @@ export const INNO_LICENSE_PRICES: Record<string, InnoLicensePrice> = {
   },
 }
 
+// ============================================================
+//  Фискальное оборудование (BG-1..5, 2026-05-26)
+// ============================================================
+//
+// Два паттерна фискализации, привязанные к группе киоска:
+//
+//   'internal' — модуль АТОЛ 42 ФА вставляется внутрь корпуса киоска,
+//                превращает встроенный принтер в фискальный регистратор.
+//                Используется на больших киосках с местом внутри.
+//                Для МС 24/32 у которых принтер не идёт в комплекте —
+//                добавляется отдельной строкой «Принтер чеков 80мм»
+//                (по умолчанию; 58мм доступен опционально из каталога).
+//
+//   'external' — полноценный ФР «POScenter-02Ф Cover» ставится снаружи
+//                рядом с киоском/планшетом. Используется когда внутрь
+//                ничего не влезает (маленькие киоски, планшетные точки).
+//
+// ФН 15 идёт парой к ЛЮБОМУ ФР/ККТ — пары неразделимы.
+//
+// По дефолту:
+//   - Kiosk PRO: пакет ВКЛЮЧЁН (у клиента нет своей кассы — нужна фискализация)
+//   - Планшетный Kiosk: пакет ВЫКЛЮЧЕН (чаще клиент со своей iiko-кассой;
+//     если нужен ФР — менеджер ставит галку)
+//
+// Имена в КП — реальные модели, без обезличивания (юридическая прозрачность).
+
+export type FiscalPattern = 'internal' | 'external' | 'none'
+
+export interface FiscalConfig {
+  pattern: FiscalPattern
+  /** Если внутренний паттерн и принтер НЕ в комплекте киоска — указать тип. */
+  includeBuiltinPrinter?: 'p58' | 'p80'
+}
+
+export const FISCAL_DEVICES = {
+  atol42fa:     { name: 'ККТ «Атол 42 ФА»',                         price: 33230 },
+  poscenter02f: { name: 'Фискальный регистратор «POScenter-02Ф»',   price: 38250 },
+  fn15:         { name: 'Фискальный накопитель ФН 15',              price: 23016 },
+  printer58:    { name: 'Принтер чеков 58мм встраиваемый',          price: 14515 },
+  printer80:    { name: 'Принтер чеков 80мм встраиваемый',          price: 20025 },
+} as const
+
+// Правила паттерна — по префиксу группы из Google Sheets (после нормализации).
+// Порядок матчинга = порядок в массиве; более специфичные (длинные) префиксы
+// должны идти раньше общих.
+const KIOSK_FISCAL_RULES: Array<{ groupMatch: string; cfg: FiscalConfig }> = [
+  // ── Pattern A — внутренний АТОЛ 42 ФА ──
+  // Принтер встроен в комплект киоска — отдельной строкой не добавляется:
+  { groupMatch: 'poscenter k',              cfg: { pattern: 'internal' } },
+  { groupMatch: 'киоск sam4s',              cfg: { pattern: 'internal' } },
+  { groupMatch: 'kiosk superkiosk l-240',   cfg: { pattern: 'internal' } },
+  { groupMatch: 'kiosk superkiosk l-320',   cfg: { pattern: 'internal' } },
+  { groupMatch: 'киоск superkiosk t-215',   cfg: { pattern: 'internal' } },
+  { groupMatch: 'киоск superkiosk r-156',   cfg: { pattern: 'internal' } },
+  // МС 24 / МС 32 — принтер в комплект НЕ входит, добавляем 80мм по умолчанию:
+  { groupMatch: 'киоск самообслуживания мс 24', cfg: { pattern: 'internal', includeBuiltinPrinter: 'p80' } },
+  { groupMatch: 'киоск самообслуживания мс 32', cfg: { pattern: 'internal', includeBuiltinPrinter: 'p80' } },
+  // ── Pattern B — внешний POScenter-02Ф Cover ──
+  { groupMatch: 'sco poscenter',                       cfg: { pattern: 'external' } },
+  { groupMatch: 'касса самообслуживания мс mini',      cfg: { pattern: 'external' } },
+  { groupMatch: 'касса самообслуживания мс 21 n',      cfg: { pattern: 'external' } },
+  { groupMatch: 'касса самообслуживания мс 21 slim',   cfg: { pattern: 'external' } },
+]
+
+function normalizeGroup(s: string): string {
+  return s.toLowerCase().trim().replace(/\s+/g, ' ')
+}
+
+/** Возвращает конфигурацию фискального пакета по группе киоска
+ *  из Google Sheets. Если группа не сматчилась — null (модель новая,
+ *  правило не задано, фискалка не подставится). */
+export function getFiscalConfigByGroup(group: string | null | undefined): FiscalConfig | null {
+  if (!group) return null
+  const g = normalizeGroup(group)
+  for (const rule of KIOSK_FISCAL_RULES) {
+    if (g.startsWith(rule.groupMatch)) return rule.cfg
+  }
+  return null
+}
+
+/** Конфигурация для планшетного inno clouds Киоск (license_type='kiosk'). */
+export const TABLET_KIOSK_FISCAL_CONFIG: FiscalConfig = { pattern: 'external' }
+
+/** Предпросмотр состава фискального пакета — для UI чекбокса в форме. */
+export function getFiscalPackPreview(config: FiscalConfig): Array<{ name: string; price: number }> {
+  if (config.pattern === 'internal') {
+    const items: Array<{ name: string; price: number }> = [
+      { name: FISCAL_DEVICES.atol42fa.name, price: FISCAL_DEVICES.atol42fa.price },
+      { name: FISCAL_DEVICES.fn15.name,     price: FISCAL_DEVICES.fn15.price },
+    ]
+    if (config.includeBuiltinPrinter === 'p80') {
+      items.push({ name: FISCAL_DEVICES.printer80.name, price: FISCAL_DEVICES.printer80.price })
+    } else if (config.includeBuiltinPrinter === 'p58') {
+      items.push({ name: FISCAL_DEVICES.printer58.name, price: FISCAL_DEVICES.printer58.price })
+    }
+    return items
+  }
+  if (config.pattern === 'external') {
+    return [
+      { name: FISCAL_DEVICES.poscenter02f.name, price: FISCAL_DEVICES.poscenter02f.price },
+      { name: FISCAL_DEVICES.fn15.name,         price: FISCAL_DEVICES.fn15.price },
+    ]
+  }
+  return []
+}
+
 // ---------- Дополнительные лицензии (add-on'ы) ----------
 //
 // Расширения поверх основной ИННО-лицензии. Можно подключить любое количество

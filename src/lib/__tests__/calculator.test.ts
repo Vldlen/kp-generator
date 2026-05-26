@@ -47,6 +47,7 @@ function baseForm(over: Partial<ParsedRequest> = {}): ParsedRequest {
     notes: '',
     selected_kiosk_options: [],
     additional_licenses: [],
+    fiscal_pack: false,
     ...over,
   }
 }
@@ -694,6 +695,177 @@ describe('calculateKP — дополнительные лицензии', () => 
     const sec = kp.sections.find(s => s.title === 'Лицензии и подписки')!
     // 1 основная + 1 очередь (неизвестный пропущен)
     expect(sec.items.length).toBe(2)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────
+// Фискальный пакет (BG-1..5)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('calculateKP — фискальный пакет', () => {
+  // Цены из FISCAL_DEVICES (catalog.ts):
+  // АТОЛ 42 ФА = 33 230, ФН 15 = 23 016, POScenter-02Ф = 38 250,
+  // принтер 58мм = 14 515, принтер 80мм = 20 025
+
+  it('Kiosk PRO МС 32: pattern A с принтером 80мм (3 фискальные строки × devices)', () => {
+    const kp = calculateKP(baseForm({
+      license_type: 'kiosk_pro',
+      devices: 2,
+      fiscal_pack: true,
+      _kiosk_name: 'Киоск самообслуживания МС 32 i3',
+      _kiosk_price: 229824,
+      _kiosk_group: 'Киоск самообслуживания МС 32',
+    }))
+    const equip = kp.sections.find(s => s.title === 'Оборудование')!
+    const atol = equip.items.find(i => i.name.includes('Атол 42 ФА'))!
+    const fn = equip.items.find(i => i.name.includes('ФН 15'))!
+    const printer = equip.items.find(i => i.name.includes('80мм'))!
+    expect(atol.unitPrice).toBe(33230)
+    expect(atol.qty).toBe(2)
+    expect(atol.total).toBe(66460)
+    expect(fn.unitPrice).toBe(23016)
+    expect(printer.unitPrice).toBe(20025)
+  })
+
+  it('Kiosk PRO Sam4s Astra: pattern A без отдельного принтера (АТОЛ + ФН)', () => {
+    const kp = calculateKP(baseForm({
+      license_type: 'kiosk_pro',
+      devices: 1,
+      fiscal_pack: true,
+      _kiosk_name: 'Киоск Sam4s Astra ( 21 inch) i3',
+      _kiosk_price: 291091,
+      _kiosk_group: 'Киоск Sam4s Astra',
+    }))
+    const equip = kp.sections.find(s => s.title === 'Оборудование')!
+    expect(equip.items.some(i => i.name.includes('Атол 42 ФА'))).toBe(true)
+    expect(equip.items.some(i => i.name.includes('ФН 15'))).toBe(true)
+    expect(equip.items.some(i => i.name.includes('Принтер'))).toBe(false)
+  })
+
+  it('Kiosk PRO МС Mini 15 N: pattern B (внешний POScenter-02Ф + ФН)', () => {
+    const kp = calculateKP(baseForm({
+      license_type: 'kiosk_pro',
+      devices: 1,
+      fiscal_pack: true,
+      _kiosk_name: 'Касса самообслуживания МС Mini 15 N без сканера',
+      _kiosk_price: 94248,
+      _kiosk_group: 'Касса самообслуживания МС Mini 15 N',
+    }))
+    const equip = kp.sections.find(s => s.title === 'Оборудование')!
+    const fr = equip.items.find(i => i.name.includes('POScenter-02Ф'))!
+    const fn = equip.items.find(i => i.name.includes('ФН 15'))!
+    expect(fr.unitPrice).toBe(38250)
+    expect(fn.unitPrice).toBe(23016)
+    expect(equip.items.some(i => i.name.includes('Атол'))).toBe(false)
+  })
+
+  it('Kiosk PRO с fiscal_pack=false: фискальные строки не добавляются', () => {
+    const kp = calculateKP(baseForm({
+      license_type: 'kiosk_pro',
+      devices: 1,
+      fiscal_pack: false,
+      _kiosk_name: 'Киоск самообслуживания МС 32 i3',
+      _kiosk_price: 229824,
+      _kiosk_group: 'Киоск самообслуживания МС 32',
+    }))
+    const equip = kp.sections.find(s => s.title === 'Оборудование')!
+    expect(equip.items.some(i => i.name.includes('Атол'))).toBe(false)
+    expect(equip.items.some(i => i.name.includes('ФН'))).toBe(false)
+    expect(equip.items.some(i => i.name.includes('POScenter-02Ф'))).toBe(false)
+  })
+
+  it('Планшетный Kiosk + fiscal_pack=true: pattern B (POScenter-02Ф + ФН)', () => {
+    const kp = calculateKP(baseForm({
+      license_type: 'kiosk',
+      devices: 1,
+      fiscal_pack: true,
+    }))
+    const equip = kp.sections.find(s => s.title === 'Оборудование')!
+    expect(equip.items.some(i => i.name.includes('POScenter-02Ф'))).toBe(true)
+    expect(equip.items.some(i => i.name.includes('ФН 15'))).toBe(true)
+  })
+
+  it('Планшетный Kiosk + fiscal_pack=false (дефолт): без фискалки', () => {
+    const kp = calculateKP(baseForm({
+      license_type: 'kiosk',
+      devices: 1,
+      fiscal_pack: false,
+    }))
+    const equip = kp.sections.find(s => s.title === 'Оборудование')!
+    expect(equip.items.some(i => i.name.includes('POScenter'))).toBe(false)
+    expect(equip.items.some(i => i.name.includes('ФН'))).toBe(false)
+  })
+
+  it('Kiosk PRO с неизвестной группой: фискалка не добавляется (правило не найдено)', () => {
+    const kp = calculateKP(baseForm({
+      license_type: 'kiosk_pro',
+      devices: 1,
+      fiscal_pack: true,
+      _kiosk_name: 'Unknown Kiosk Model',
+      _kiosk_price: 100000,
+      _kiosk_group: 'Какая-то новая группа',
+    }))
+    const equip = kp.sections.find(s => s.title === 'Оборудование')!
+    expect(equip.items.some(i => i.name.includes('Атол'))).toBe(false)
+    expect(equip.items.some(i => i.name.includes('POScenter-02Ф'))).toBe(false)
+  })
+
+  it('Pattern B с 3 устройствами: фискальные строки × 3 каждая', () => {
+    const kp = calculateKP(baseForm({
+      license_type: 'kiosk_pro',
+      devices: 3,
+      fiscal_pack: true,
+      _kiosk_name: 'Касса самообслуживания МС 21 N i3 со сканером',
+      _kiosk_price: 144325,
+      _kiosk_group: 'Касса самообслуживания МС 21 N',
+    }))
+    const equip = kp.sections.find(s => s.title === 'Оборудование')!
+    const fr = equip.items.find(i => i.name.includes('POScenter-02Ф'))!
+    const fn = equip.items.find(i => i.name.includes('ФН 15'))!
+    expect(fr.qty).toBe(3)
+    expect(fr.total).toBe(38250 * 3)
+    expect(fn.qty).toBe(3)
+    expect(fn.total).toBe(23016 * 3)
+  })
+
+  it('Pattern A МС 24 — printer 80мм автоматически, не 58мм', () => {
+    const kp = calculateKP(baseForm({
+      license_type: 'kiosk_pro',
+      devices: 1,
+      fiscal_pack: true,
+      _kiosk_name: 'Киоск самообслуживания МС 24 i3',
+      _kiosk_price: 186480,
+      _kiosk_group: 'Киоск самообслуживания МС 24',
+    }))
+    const equip = kp.sections.find(s => s.title === 'Оборудование')!
+    expect(equip.items.some(i => i.name.includes('80мм'))).toBe(true)
+    expect(equip.items.some(i => i.name.includes('58мм'))).toBe(false)
+  })
+
+  it('БОНДА с fiscal_pack=true: фискалки нет (нет оборудования вообще)', () => {
+    const kp = calculateKP(baseForm({
+      company: 'bonda',
+      license_type: 'findir',
+      findir_tariff: 'Старт',
+      devices: 0,
+      fiscal_pack: true,  // даже если бы стояло — секции Оборудование нет
+    }))
+    expect(kp.sections.some(s => s.title === 'Оборудование')).toBe(false)
+  })
+
+  it('Группа со странными пробелами (double-space в каталоге) — fuzzy match работает', () => {
+    // В Google Sheets группа "Киоск  SuperKiosk R-156" имеет ДВА пробела.
+    // Парсер должен нормализовать (lowercase + схлопнуть пробелы).
+    const kp = calculateKP(baseForm({
+      license_type: 'kiosk_pro',
+      devices: 1,
+      fiscal_pack: true,
+      _kiosk_name: 'Киоск SuperKiosk R-156 i3',
+      _kiosk_price: 142742,
+      _kiosk_group: 'Киоск  SuperKiosk R-156',  // два пробела специально
+    }))
+    const equip = kp.sections.find(s => s.title === 'Оборудование')!
+    expect(equip.items.some(i => i.name.includes('Атол 42 ФА'))).toBe(true)
   })
 })
 
