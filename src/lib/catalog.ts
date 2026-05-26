@@ -584,6 +584,29 @@ export const INNO_LICENSE_PRICES: Record<string, InnoLicensePrice> = {
   },
 }
 
+// ---------- Дополнительные лицензии (add-on'ы) ----------
+//
+// Расширения поверх основной ИННО-лицензии. Можно подключить любое количество
+// независимо от типа основной (Меню/Ресторан/Киоск/Киоск Профи). 2026-05-26:
+// первая такая лицензия — Электронная очередь. По мере появления новых
+// продуктов добавлять записи сюда; форма и калькулятор подхватят автоматически.
+
+export interface InnoAddonLicense {
+  name: string
+  pricePerMonth: number
+  unit: 'location' | 'device' | 'kp'
+  uiLabel: string  // что показывается рядом с чекбоксом в форме
+}
+
+export const INNO_ADDON_LICENSES: Record<string, InnoAddonLicense> = {
+  queue: {
+    name: 'inno clouds Электронная очередь',
+    pricePerMonth: 2000,
+    unit: 'location',
+    uiLabel: '2 000 ₽/мес за локацию',
+  },
+}
+
 // ---------- Скидка за период подписки ----------
 
 export const periodMultiplier: Record<SubscriptionPeriod, { months: number; discount: number; label: string }> = {

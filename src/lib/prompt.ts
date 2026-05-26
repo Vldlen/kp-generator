@@ -22,6 +22,10 @@ export interface ParsedRequest {
   payment_type: 'prepay100' | 'installment3'
   notes: string
   selected_kiosk_options: string[]  // IDs опций из каталога (ККТ, ФН, принтеры, сканеры и т.д.)
+  // Дополнительные ИННО-лицензии поверх основной (2026-05-26).
+  // Ключи из INNO_ADDON_LICENSES (catalog.ts). Например ['queue'] —
+  // Электронная очередь добавится отдельной строкой в «Лицензии и подписки».
+  additional_licenses: string[]
   // Internal fields for calculator (populated by page.tsx)
   _kiosk_name?: string
   _kiosk_price?: number

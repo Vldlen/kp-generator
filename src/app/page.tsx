@@ -10,6 +10,7 @@ import {
   allProducts,
   tablets,
   INNO_LICENSE_PRICES,
+  INNO_ADDON_LICENSES,
   type SubscriptionPeriod,
 } from '@/lib/catalog'
 import { fetchAllCatalog, type DBProduct } from '@/lib/supabase'
@@ -33,6 +34,7 @@ const defaultForm: ParsedRequest = {
   payment_type: 'prepay100',
   notes: '',
   selected_kiosk_options: [],
+  additional_licenses: [],
 }
 
 // Маппинг старых категорий catalog.ts → новые
@@ -119,6 +121,8 @@ export default function Home() {
 
       // Авто-переключения
       if (key === 'company') {
+        // Дополнительные лицензии — только ИННО; чистим при любой смене компании.
+        next.additional_licenses = []
         if (value === 'bonda') {
           next.products = []
           next.devices = 0
@@ -172,6 +176,18 @@ export default function Home() {
       }
 
       return next
+    })
+  }
+
+  const toggleAddon = (key: string) => {
+    setForm(prev => {
+      const has = prev.additional_licenses.includes(key)
+      return {
+        ...prev,
+        additional_licenses: has
+          ? prev.additional_licenses.filter(k => k !== key)
+          : [...prev.additional_licenses, key],
+      }
     })
   }
 
@@ -617,6 +633,33 @@ export default function Home() {
                       Работает на телефонах клиентов — оборудование не требуется.
                     </div>
                   )}
+                </div>
+              </Section>
+            )}
+
+            {/* Дополнительные лицензии — только ИННО, поверх любой основной */}
+            {isInno && form.license_type && (
+              <Section title="Дополнительные лицензии">
+                <div className="space-y-1">
+                  {Object.entries(INNO_ADDON_LICENSES).map(([key, addon]) => {
+                    const isChecked = form.additional_licenses.includes(key)
+                    return (
+                      <label
+                        key={key}
+                        className="pc-opt"
+                        data-on={isChecked}
+                        onClick={() => toggleAddon(key)}
+                      >
+                        <span className="pc-box">{isChecked && <Check />}</span>
+                        <span className="flex-1 flex items-baseline justify-between gap-3">
+                          <span className="text-sm text-[var(--text)]">{addon.name}</span>
+                          <span className="font-mono text-xs text-[var(--accent)] whitespace-nowrap">
+                            {addon.uiLabel}
+                          </span>
+                        </span>
+                      </label>
+                    )
+                  })}
                 </div>
               </Section>
             )}

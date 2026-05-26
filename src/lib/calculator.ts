@@ -5,7 +5,7 @@ import {
   tablets, mounts, peripherals, kioskKits, posEquipment,
   services, innoLicenses, findirTariffs,
   getLicensePrice, getFindirPrice, periodMultiplier,
-  getProductById, INNO_LICENSE_PRICES,
+  getProductById, INNO_LICENSE_PRICES, INNO_ADDON_LICENSES,
   type SubscriptionPeriod,
 } from './catalog'
 
@@ -219,8 +219,11 @@ export function calculateKP(req: ParsedRequest): KPResult {
   }
 
   // ===== ЛИЦЕНЗИИ =====
+  // licItems поднят на уровень выше: основная лицензия и add-on'ы кладутся
+  // в одну секцию «Лицензии и подписки» (см. блок дополнительных лицензий ниже).
+  const licItems: LineItem[] = []
+
   if (req.license_type) {
-    const licItems: LineItem[] = []
     const period = periodMultiplier[req.subscription_period]
 
     // ИННО лицензии: QR, Ecomm, Kiosk, Kiosk PRO.
@@ -311,14 +314,43 @@ export function calculateKP(req: ParsedRequest): KPResult {
       }
     }
 
-    if (licItems.length > 0) {
-      const subtotal = licItems.reduce((sum, i) => sum + i.total, 0)
-      sections.push({
-        title: 'Лицензии и подписки',
-        items: licItems,
-        subtotal,
+  }
+
+  // ===== ДОПОЛНИТЕЛЬНЫЕ ЛИЦЕНЗИИ (add-on'ы, 2026-05-26) =====
+  // Кладутся в ту же секцию «Лицензии и подписки» отдельной строкой.
+  // Доступны только для ИННО, складываются поверх любой основной лицензии.
+  if (req.company === 'inno' && req.additional_licenses && req.additional_licenses.length > 0) {
+    const period_ = periodMultiplier[req.subscription_period]
+    for (const addonKey of req.additional_licenses) {
+      const addon = INNO_ADDON_LICENSES[addonKey]
+      if (!addon) continue
+      const qty =
+        addon.unit === 'location' ? req.locations :
+        addon.unit === 'device'   ? req.devices   : 1
+      if (qty <= 0) continue
+      monthlyTotal += addon.pricePerMonth * qty
+      const unitLabel =
+        addon.unit === 'location' ? 'лок.' :
+        addon.unit === 'device'   ? 'устр.' : 'шт.'
+      licItems.push({
+        name: `${addon.name} × ${qty} ${unitLabel} (${period_.label})`,
+        category: 'license_inno',
+        qty,
+        unitPrice: addon.pricePerMonth,
+        months: period_.months,
+        discount: 0,
+        total: addon.pricePerMonth * qty * period_.months,
       })
     }
+  }
+
+  if (licItems.length > 0) {
+    const subtotal = licItems.reduce((sum, i) => sum + i.total, 0)
+    sections.push({
+      title: 'Лицензии и подписки',
+      items: licItems,
+      subtotal,
+    })
   }
 
   // ===== УСЛУГИ =====

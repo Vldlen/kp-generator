@@ -46,6 +46,7 @@ function baseForm(over: Partial<ParsedRequest> = {}): ParsedRequest {
     payment_type: 'prepay100',
     notes: '',
     selected_kiosk_options: [],
+    additional_licenses: [],
     ...over,
   }
 }
@@ -602,6 +603,99 @@ describe('calculateKP — LineItem.months для всех подписок', () 
 // ─────────────────────────────────────────────────────────────────────────
 // Pre-Phase-8 baseline: фиксация известных багов H1/H3 для регрессии
 // ─────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────
+// Дополнительные лицензии (add-on'ы): inno clouds Электронная очередь
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('calculateKP — дополнительные лицензии', () => {
+  it('Электронная очередь: unitPrice=2000, qty=locations, отдельная строка в «Лицензии и подписки»', () => {
+    const kp = calculateKP(baseForm({
+      license_type: 'kiosk', devices: 1, locations: 1,
+      additional_licenses: ['queue'], subscription_period: 'year',
+    }))
+    const queue = findItem(kp, 'Лицензии и подписки', 'Электронная очередь')!
+    expect(queue.unitPrice).toBe(2000)
+    expect(queue.qty).toBe(1)
+    expect(queue.months).toBe(12)
+    expect(queue.total).toBe(24000)
+  })
+
+  it('Очередь масштабируется по locations, не по devices', () => {
+    const kp = calculateKP(baseForm({
+      license_type: 'kiosk', devices: 3, locations: 5,
+      additional_licenses: ['queue'], subscription_period: 'month',
+    }))
+    const queue = findItem(kp, 'Лицензии и подписки', 'Электронная очередь')!
+    expect(queue.qty).toBe(5)
+    expect(queue.total).toBe(2000 * 5 * 1)
+  })
+
+  it('monthlyTotal суммирует основную лицензию и Очередь', () => {
+    const kp = calculateKP(baseForm({
+      license_type: 'qr', locations: 1, devices: 0,
+      additional_licenses: ['queue'], subscription_period: 'year',
+    }))
+    // inno clouds Меню 8 000 × 1 лок + Очередь 2 000 × 1 лок = 10 000 ₽/мес
+    expect(kp.monthlyTotal).toBe(10000)
+  })
+
+  it('Очередь работает с inno clouds Ресторан (Ecomm)', () => {
+    const kp = calculateKP(baseForm({
+      license_type: 'ecomm', locations: 3, devices: 0,
+      additional_licenses: ['queue'], subscription_period: 'half_year',
+    }))
+    const queue = findItem(kp, 'Лицензии и подписки', 'Электронная очередь')!
+    expect(queue.total).toBe(2000 * 3 * 6)  // 36 000
+    expect(kp.monthlyTotal).toBe(15000 * 3 + 2000 * 3)  // 51 000
+  })
+
+  it('Очередь работает с inno clouds Киоск Профи', () => {
+    const kp = calculateKP(baseForm({
+      license_type: 'kiosk_pro', devices: 2, locations: 1,
+      additional_licenses: ['queue'], subscription_period: 'year',
+    }))
+    const queue = findItem(kp, 'Лицензии и подписки', 'Электронная очередь')!
+    expect(queue.qty).toBe(1)  // per location, не per device
+    expect(queue.total).toBe(24000)
+  })
+
+  it('Очередь НЕ добавляется для БОНДА (ИННО-only)', () => {
+    const kp = calculateKP(baseForm({
+      company: 'bonda', license_type: 'findir', findir_tariff: 'Старт',
+      locations: 1, devices: 0,
+      additional_licenses: ['queue'], subscription_period: 'month',
+    }))
+    expect(findItem(kp, 'Лицензии и подписки', 'Электронная очередь')).toBeUndefined()
+  })
+
+  it('Без основной лицензии add-on всё равно создаёт секцию «Лицензии и подписки»', () => {
+    const kp = calculateKP(baseForm({
+      license_type: null, locations: 1, devices: 0,
+      additional_licenses: ['queue'], subscription_period: 'month',
+    }))
+    const sec = kp.sections.find(s => s.title === 'Лицензии и подписки')
+    expect(sec?.items.length).toBe(1)
+    expect(sec?.items[0].name).toContain('Электронная очередь')
+  })
+
+  it('Без add-on'+"'"+'ов и без основной лицензии — секции «Лицензии и подписки» нет', () => {
+    const kp = calculateKP(baseForm({
+      license_type: null, additional_licenses: [], devices: 0,
+    }))
+    expect(kp.sections.find(s => s.title === 'Лицензии и подписки')).toBeUndefined()
+  })
+
+  it('Неизвестный ключ add-on'+"'"+'а молча пропускается', () => {
+    const kp = calculateKP(baseForm({
+      license_type: 'kiosk',
+      additional_licenses: ['queue', 'unknown_addon_xyz'],
+    }))
+    const sec = kp.sections.find(s => s.title === 'Лицензии и подписки')!
+    // 1 основная + 1 очередь (неизвестный пропущен)
+    expect(sec.items.length).toBe(2)
+  })
+})
 
 describe('calculateKP — все позиции оборудования × devices (каждый планшет = свой комплект)', () => {
   it('хаб LAN и крепление пинпада тоже × devices, не × locations', () => {
