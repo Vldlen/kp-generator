@@ -454,7 +454,7 @@ export const services: ServiceItem[] = [
   },
   {
     id: 'svc-inno-content',
-    name: 'Генерация контента',
+    name: 'inno clouds Контент',
     company: 'inno',
     description: 'Дизайн карточек товаров и промо-материалов',
     pricePerUnit: 1200,
@@ -554,27 +554,30 @@ export interface InnoLicensePrice {
   uiLabel: string  // что показывается в карточке формы (под названием)
 }
 
+// Имена обновлены по требованию русификации (2026-05-22). Внутренние ключи
+// (qr/ecomm/kiosk/kiosk_pro) и `license_type` в коде не трогаем — это id
+// продуктов; меняется только то, что видит клиент.
 export const INNO_LICENSE_PRICES: Record<string, InnoLicensePrice> = {
   qr: {
-    name: 'inno QR',
+    name: 'inno clouds Меню',
     pricePerMonth: 8000,
     unit: 'location',
     uiLabel: '8 000 ₽/мес · Без оборудования',
   },
   ecomm: {
-    name: 'inno Ecomm',
+    name: 'inno clouds Ресторан',
     pricePerMonth: 15000,
     unit: 'location',
     uiLabel: '15 000 ₽/мес · Без оборудования',
   },
   kiosk: {
-    name: 'inno Kiosk',
+    name: 'inno clouds Киоск',
     pricePerMonth: 10000,
     unit: 'device',
     uiLabel: '10 000 ₽/мес · Планшет + периферия',
   },
   kiosk_pro: {
-    name: 'inno Kiosk PRO',
+    name: 'inno clouds Киоск Профи',
     pricePerMonth: 16200,
     unit: 'device',
     uiLabel: '16 200 ₽/мес · Готовый киоск',

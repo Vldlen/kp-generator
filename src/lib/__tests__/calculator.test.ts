@@ -108,10 +108,10 @@ describe('recomputeLineTotal', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────
-// calculateKP — inno Kiosk (планшетный комплект)
+// calculateKP — inno clouds Киоск (планшетный комплект)
 // ─────────────────────────────────────────────────────────────────────────
 
-describe('calculateKP — inno Kiosk', () => {
+describe('calculateKP — inno clouds Киоск', () => {
   it('дефолтный комплект (1 устр, настольный, год) даёт 8 позиций оборудования', () => {
     const kp = calculateKP(baseForm({ license_type: 'kiosk', devices: 1, kiosk_type: 'desk' }))
     const equip = findSection(kp, 'Оборудование')
@@ -166,40 +166,40 @@ describe('calculateKP — inno Kiosk', () => {
     expect(tablet?.unitPrice).toBe(65000)
   })
 
-  it('лицензия inno Kiosk: unitPrice=10000/мес, months=12, total=120 000 за год', () => {
+  it('лицензия inno clouds Киоск: unitPrice=10000/мес, months=12, total=120 000 за год', () => {
     const kp = calculateKP(baseForm({ license_type: 'kiosk', devices: 1, subscription_period: 'year' }))
-    const lic = findItem(kp, 'Лицензии и подписки', 'inno Kiosk')!
+    const lic = findItem(kp, 'Лицензии и подписки', 'inno clouds Киоск')!
     expect(lic.unitPrice).toBe(10000)
     expect(lic.months).toBe(12)
     expect(lic.qty).toBe(1)
     expect(lic.total).toBe(120000)
   })
 
-  it('лицензия inno Kiosk месячная: total = 10 000', () => {
+  it('лицензия inno clouds Киоск месячная: total = 10 000', () => {
     const kp = calculateKP(baseForm({ license_type: 'kiosk', devices: 1, subscription_period: 'month' }))
-    const lic = findItem(kp, 'Лицензии и подписки', 'inno Kiosk')!
+    const lic = findItem(kp, 'Лицензии и подписки', 'inno clouds Киоск')!
     expect(lic.months).toBe(1)
     expect(lic.total).toBe(10000)
   })
 
-  it('лицензия inno Kiosk × 5 устройств × год = 600 000 ₽', () => {
+  it('лицензия inno clouds Киоск × 5 устройств × год = 600 000 ₽', () => {
     const kp = calculateKP(baseForm({ license_type: 'kiosk', devices: 5, subscription_period: 'year' }))
-    const lic = findItem(kp, 'Лицензии и подписки', 'inno Kiosk')!
+    const lic = findItem(kp, 'Лицензии и подписки', 'inno clouds Киоск')!
     expect(lic.qty).toBe(5)
     expect(lic.total).toBe(600000)
   })
 
-  it('monthlyTotal для inno Kiosk = 10 000 × devices (не × months)', () => {
+  it('monthlyTotal для inno clouds Киоск = 10 000 × devices (не × months)', () => {
     const kp = calculateKP(baseForm({ license_type: 'kiosk', devices: 3, subscription_period: 'year' }))
     expect(kp.monthlyTotal).toBe(30000)
   })
 })
 
 // ─────────────────────────────────────────────────────────────────────────
-// calculateKP — inno Kiosk PRO
+// calculateKP — inno clouds Киоск Профи
 // ─────────────────────────────────────────────────────────────────────────
 
-describe('calculateKP — inno Kiosk PRO', () => {
+describe('calculateKP — inno clouds Киоск Профи', () => {
   it('без _kiosk_* fallback → posEquipment[0] (POScenter Atlas 15", 39 400 ₽)', () => {
     const kp = calculateKP(baseForm({ license_type: 'kiosk_pro', devices: 1 }))
     const equip = findSection(kp, 'Оборудование')!
@@ -250,19 +250,19 @@ describe('calculateKP — inno Kiosk PRO', () => {
     expect(equip.items.find(i => i.name === 'Принтер чеков')?.unitPrice).toBe(15000)
   })
 
-  it('лицензия inno Kiosk PRO: unitPrice=16 200/мес', () => {
+  it('лицензия inno clouds Киоск Профи: unitPrice=16 200/мес', () => {
     const kp = calculateKP(baseForm({ license_type: 'kiosk_pro', devices: 1, subscription_period: 'year' }))
-    const lic = findItem(kp, 'Лицензии и подписки', 'inno Kiosk PRO')!
+    const lic = findItem(kp, 'Лицензии и подписки', 'inno clouds Киоск Профи')!
     expect(lic.unitPrice).toBe(16200)
     expect(lic.total).toBe(16200 * 12)
   })
 })
 
 // ─────────────────────────────────────────────────────────────────────────
-// calculateKP — inno QR / Ecomm (без оборудования)
+// calculateKP — inno clouds Меню / Ecomm (без оборудования)
 // ─────────────────────────────────────────────────────────────────────────
 
-describe('calculateKP — inno QR/Ecomm', () => {
+describe('calculateKP — inno clouds Меню/Ecomm', () => {
   it('QR не создаёт секцию Оборудование', () => {
     const kp = calculateKP(baseForm({ license_type: 'qr', devices: 0, locations: 5 }))
     expect(findSection(kp, 'Оборудование')).toBeUndefined()
@@ -270,7 +270,7 @@ describe('calculateKP — inno QR/Ecomm', () => {
 
   it('QR: лицензия × locations (не × devices)', () => {
     const kp = calculateKP(baseForm({ license_type: 'qr', devices: 0, locations: 5, subscription_period: 'year' }))
-    const lic = findItem(kp, 'Лицензии и подписки', 'inno QR')!
+    const lic = findItem(kp, 'Лицензии и подписки', 'inno clouds Меню')!
     expect(lic.qty).toBe(5)
     expect(lic.unitPrice).toBe(8000)
     expect(lic.months).toBe(12)
@@ -279,7 +279,7 @@ describe('calculateKP — inno QR/Ecomm', () => {
 
   it('Ecomm: лицензия × locations × month period', () => {
     const kp = calculateKP(baseForm({ license_type: 'ecomm', devices: 0, locations: 3, subscription_period: 'month' }))
-    const lic = findItem(kp, 'Лицензии и подписки', 'inno Ecomm')!
+    const lic = findItem(kp, 'Лицензии и подписки', 'inno clouds Ресторан')!
     expect(lic.qty).toBe(3)
     expect(lic.unitPrice).toBe(15000)
     expect(lic.months).toBe(1)
@@ -288,7 +288,7 @@ describe('calculateKP — inno QR/Ecomm', () => {
 
   it('Ecomm: half_year × 2 locations = 6 × 15000 × 2 = 180 000', () => {
     const kp = calculateKP(baseForm({ license_type: 'ecomm', devices: 0, locations: 2, subscription_period: 'half_year' }))
-    const lic = findItem(kp, 'Лицензии и подписки', 'inno Ecomm')!
+    const lic = findItem(kp, 'Лицензии и подписки', 'inno clouds Ресторан')!
     expect(lic.total).toBe(180000)
   })
 })
@@ -443,7 +443,7 @@ describe('calculateKP — Услуги', () => {
       license_type: 'kiosk',
       content_items: 80,
     }))
-    const content = findItem(kp, 'Услуги', 'Генерация')!
+    const content = findItem(kp, 'Услуги', 'inno clouds Контент')!
     expect(content.qty).toBe(80)
     expect(content.unitPrice).toBe(1200)
     expect(content.total).toBe(96000)
@@ -556,9 +556,9 @@ describe('calculateKP — LineItem.months для всех подписок', () 
     { period: 'half_year', months: 6 },
     { period: 'year', months: 12 },
   ]
-  it.each(periodCases)('inno Kiosk × $period → months=$months', ({ period, months }: PeriodCase) => {
+  it.each(periodCases)('inno clouds Киоск × $period → months=$months', ({ period, months }: PeriodCase) => {
     const kp = calculateKP(baseForm({ license_type: 'kiosk', devices: 1, subscription_period: period }))
-    const lic = findItem(kp, 'Лицензии и подписки', 'inno Kiosk')!
+    const lic = findItem(kp, 'Лицензии и подписки', 'inno clouds Киоск')!
     expect(lic.months).toBe(months)
   })
 

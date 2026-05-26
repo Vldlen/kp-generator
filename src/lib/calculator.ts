@@ -344,7 +344,7 @@ export function calculateKP(req: ParsedRequest): KPResult {
     if (content) {
       const total = content.pricePerUnit * req.content_items
       svcItems.push({
-        name: 'Генерация контента (карточки меню)',
+        name: 'inno clouds Контент',
         category: 'Услуги',
         qty: req.content_items,
         unitPrice: content.pricePerUnit,
