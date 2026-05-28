@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { KPPreview } from '@/components/KPPreview'
 import { calculateKP, type KPResult } from '@/lib/calculator'
 import type { ParsedRequest } from '@/lib/prompt'
@@ -13,6 +13,7 @@ import {
   INNO_ADDON_LICENSES,
   getFiscalConfigByGroup,
   getFiscalPackPreview,
+  resolveFiscalPrices,
   TABLET_KIOSK_FISCAL_CONFIG,
   type SubscriptionPeriod,
 } from '@/lib/catalog'
@@ -118,6 +119,15 @@ export default function Home() {
       return next
     })
   }
+
+  // Живой price-map фискалки из текущего каталога (Google Sheets / Supabase /
+  // встроенный fallback). Используется UI-превью «Фискальный пакет» и при
+  // расчёте КП — calculator получает map через enrichedForm._fiscal_prices.
+  // Пересчитывается только при изменении каталога (sync кнопкой или re-fetch).
+  const fiscalPrices = useMemo(
+    () => resolveFiscalPrices(catalog.map(p => ({ name: p.name, sell_price: p.sell_price }))),
+    [catalog],
+  )
 
   const update = <K extends keyof ParsedRequest>(key: K, value: ParsedRequest[K]) => {
     setForm(prev => {
@@ -229,6 +239,9 @@ export default function Home() {
 
     // Enrich form with kiosk data for calculator
     const enrichedForm = { ...form }
+    // Живые цены фискалки из текущего каталога — передаём в calculator,
+    // чтобы фискальные строки в КП имели актуальную сумму, не хардкод.
+    enrichedForm._fiscal_prices = fiscalPrices
     if (form.license_type === 'kiosk_pro' && form.selected_kiosk_id) {
       const kiosk = catalog.find(p => p.id === form.selected_kiosk_id)
       if (kiosk) {
@@ -574,16 +587,37 @@ export default function Home() {
                       (!p.group || !kioskGroups.has(p.group))
                     )
 
+                    // Фильтр фискальных позиций (BG-1..5, фикс 2026-05-26).
+                    // Атол 42 ФА, POScenter-02Ф, ФН 15, принтеры чеков теперь
+                    // подбираются автоматически секцией «Фискальный пакет».
+                    // Прятать их из чекбоксов «Дополнительно», чтобы менеджер
+                    // не плодил дубли в КП. Сканер ШК — оставляем, он не
+                    // фискальный, опционально может быть нужен.
+                    const isFiscalDevice = (name: string): boolean => {
+                      const n = name.toLowerCase()
+                      return (
+                        n.includes('атол 42') ||
+                        n.includes('казначей') ||
+                        n.includes('poscenter-02') ||
+                        n.includes('poscenter 02') ||
+                        n.includes('фискальн') ||
+                        n.includes('фн 15') ||
+                        n.includes('принтер чек')
+                      )
+                    }
+
                     // Dedup опций по name+price (если в Sheets продукт повторён
                     // в разных группах под каждую модель киоска, не плодим
                     // одинаковые строки в чекбоксах).
                     const seen = new Set<string>()
-                    const allOptions = [...groupOptions, ...universalOptions].filter(opt => {
-                      const key = `${opt.name}|${opt.sell_price}`
-                      if (seen.has(key)) return false
-                      seen.add(key)
-                      return true
-                    })
+                    const allOptions = [...groupOptions, ...universalOptions]
+                      .filter(opt => !isFiscalDevice(opt.name))
+                      .filter(opt => {
+                        const key = `${opt.name}|${opt.sell_price}`
+                        if (seen.has(key)) return false
+                        seen.add(key)
+                        return true
+                      })
                     if (allOptions.length === 0) return null
 
                     const toggleOption = (optId: string) => {
@@ -657,7 +691,7 @@ export default function Home() {
                 ? getFiscalConfigByGroup(catalog.find(p => p.id === form.selected_kiosk_id)?.group)
                 : TABLET_KIOSK_FISCAL_CONFIG
               if (!fiscalCfg) return null
-              const items = getFiscalPackPreview(fiscalCfg)
+              const items = getFiscalPackPreview(fiscalCfg, fiscalPrices)
               if (items.length === 0) return null
               const sum = items.reduce((s, i) => s + i.price, 0)
               const label = fiscalCfg.pattern === 'internal'

@@ -618,13 +618,48 @@ export interface FiscalConfig {
   includeBuiltinPrinter?: 'p58' | 'p80'
 }
 
+// Описание фискальных устройств: каноническое имя для КП + паттерн поиска
+// в живом каталоге (Google Sheets). Цены НЕ хардкодим — тащим из каталога
+// через resolveFiscalPrices, чтобы при обновлении прайса в Sheets цены
+// в КП обновлялись автоматически (фикс 2026-05-26).
 export const FISCAL_DEVICES = {
-  atol42fa:     { name: 'ККТ «Атол 42 ФА»',                         price: 33230 },
-  poscenter02f: { name: 'Фискальный регистратор «POScenter-02Ф»',   price: 38250 },
-  fn15:         { name: 'Фискальный накопитель ФН 15',              price: 23016 },
-  printer58:    { name: 'Принтер чеков 58мм встраиваемый',          price: 14515 },
-  printer80:    { name: 'Принтер чеков 80мм встраиваемый',          price: 20025 },
+  atol42fa:     {
+    name: 'ККТ «Атол 42 ФА»',
+    match: (n: string) => /атол\s*42/i.test(n),
+  },
+  poscenter02f: {
+    name: 'Фискальный регистратор «POScenter-02Ф»',
+    match: (n: string) => /poscenter[-\s]*02ф/i.test(n),
+  },
+  fn15: {
+    name: 'Фискальный накопитель ФН 15',
+    match: (n: string) => /фн\s*15/i.test(n) || /фискальный накопитель/i.test(n),
+  },
+  printer58: {
+    name: 'Принтер чеков 58мм встраиваемый',
+    match: (n: string) => /принтер чек.*58/i.test(n),
+  },
+  printer80: {
+    name: 'Принтер чеков 80мм встраиваемый',
+    match: (n: string) => /принтер чек.*80/i.test(n),
+  },
 } as const
+
+export type FiscalDeviceKey = keyof typeof FISCAL_DEVICES
+export type FiscalPriceMap = Record<FiscalDeviceKey, number>
+
+/** Извлекает живые цены фискальных устройств из текущего каталога
+ *  (Google Sheets / Supabase / fallback). Если устройство не найдено —
+ *  цена 0, и calculator такую строку в КП не положит. */
+export function resolveFiscalPrices(catalog: Array<{ name: string; sell_price: number }>): FiscalPriceMap {
+  const result = {} as FiscalPriceMap
+  for (const key of Object.keys(FISCAL_DEVICES) as FiscalDeviceKey[]) {
+    const def = FISCAL_DEVICES[key]
+    const product = catalog.find(p => def.match(p.name))
+    result[key] = product ? Math.round(product.sell_price) : 0
+  }
+  return result
+}
 
 // Правила паттерна — по префиксу группы из Google Sheets (после нормализации).
 // Порядок матчинга = порядок в массиве; более специфичные (длинные) префиксы
@@ -667,27 +702,29 @@ export function getFiscalConfigByGroup(group: string | null | undefined): Fiscal
 /** Конфигурация для планшетного inno clouds Киоск (license_type='kiosk'). */
 export const TABLET_KIOSK_FISCAL_CONFIG: FiscalConfig = { pattern: 'external' }
 
-/** Предпросмотр состава фискального пакета — для UI чекбокса в форме. */
-export function getFiscalPackPreview(config: FiscalConfig): Array<{ name: string; price: number }> {
+/** Предпросмотр состава фискального пакета — для UI чекбокса в форме.
+ *  Цены берутся из живого price-map (resolveFiscalPrices), если устройства
+ *  в каталоге нет — пункт пропускается. */
+export function getFiscalPackPreview(
+  config: FiscalConfig,
+  prices: FiscalPriceMap,
+): Array<{ name: string; price: number }> {
+  const items: Array<{ name: string; price: number }> = []
   if (config.pattern === 'internal') {
-    const items: Array<{ name: string; price: number }> = [
-      { name: FISCAL_DEVICES.atol42fa.name, price: FISCAL_DEVICES.atol42fa.price },
-      { name: FISCAL_DEVICES.fn15.name,     price: FISCAL_DEVICES.fn15.price },
-    ]
-    if (config.includeBuiltinPrinter === 'p80') {
-      items.push({ name: FISCAL_DEVICES.printer80.name, price: FISCAL_DEVICES.printer80.price })
-    } else if (config.includeBuiltinPrinter === 'p58') {
-      items.push({ name: FISCAL_DEVICES.printer58.name, price: FISCAL_DEVICES.printer58.price })
+    if (prices.atol42fa > 0) items.push({ name: FISCAL_DEVICES.atol42fa.name, price: prices.atol42fa })
+    if (prices.fn15 > 0)     items.push({ name: FISCAL_DEVICES.fn15.name,     price: prices.fn15 })
+    if (config.includeBuiltinPrinter === 'p80' && prices.printer80 > 0) {
+      items.push({ name: FISCAL_DEVICES.printer80.name, price: prices.printer80 })
+    } else if (config.includeBuiltinPrinter === 'p58' && prices.printer58 > 0) {
+      items.push({ name: FISCAL_DEVICES.printer58.name, price: prices.printer58 })
     }
     return items
   }
   if (config.pattern === 'external') {
-    return [
-      { name: FISCAL_DEVICES.poscenter02f.name, price: FISCAL_DEVICES.poscenter02f.price },
-      { name: FISCAL_DEVICES.fn15.name,         price: FISCAL_DEVICES.fn15.price },
-    ]
+    if (prices.poscenter02f > 0) items.push({ name: FISCAL_DEVICES.poscenter02f.name, price: prices.poscenter02f })
+    if (prices.fn15 > 0)         items.push({ name: FISCAL_DEVICES.fn15.name,         price: prices.fn15 })
   }
-  return []
+  return items
 }
 
 // ---------- Дополнительные лицензии (add-on'ы) ----------

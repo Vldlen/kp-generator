@@ -40,4 +40,8 @@ export interface ParsedRequest {
   /** Группа выбранного киоска из Google Sheets — нужна calculator'у
    *  для лукапа фискального паттерна по getFiscalConfigByGroup. */
   _kiosk_group?: string | null
+  /** Живые цены фискальных устройств из текущего каталога. Calculator
+   *  использует их при сборке фискального пакета вместо хардкода
+   *  (фикс 2026-05-26 — цены живут только в Google Sheets). */
+  _fiscal_prices?: import('./catalog').FiscalPriceMap
 }

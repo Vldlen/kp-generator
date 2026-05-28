@@ -8,8 +8,20 @@ import {
   getProductById, INNO_LICENSE_PRICES, INNO_ADDON_LICENSES,
   FISCAL_DEVICES, getFiscalConfigByGroup, TABLET_KIOSK_FISCAL_CONFIG,
   type FiscalConfig,
+  type FiscalPriceMap,
   type SubscriptionPeriod,
 } from './catalog'
+
+// Запасной price-map: все нули. Если caller не пробросил _fiscal_prices
+// (старый код / тесты без override), фискальные строки получат unitPrice=0
+// и будут отфильтрованы. Лучше явно «ничего нет», чем хардкод устаревших цен.
+const ZERO_FISCAL_PRICES: FiscalPriceMap = {
+  atol42fa: 0,
+  poscenter02f: 0,
+  fn15: 0,
+  printer58: 0,
+  printer80: 0,
+}
 
 // ---------- Типы ----------
 
@@ -42,24 +54,33 @@ export function recomputeLineTotal(item: LineItem): number {
 /** Собирает строки оборудования для фискального пакета по конфигу + qty.
  *  Используется в обеих ветках (kiosk / kiosk_pro). Для каждой строки
  *  создаётся отдельный LineItem — менеджер сможет менять qty в превью
- *  (например, поставить 1 ФР на 2 планшета — см. правила фискалки). */
-function buildFiscalLineItems(config: FiscalConfig, qty: number): LineItem[] {
+ *  (например, поставить 1 ФР на 2 планшета — см. правила фискалки).
+ *
+ *  Цены приходят живыми из каталога (Google Sheets) через `prices` —
+ *  resolveFiscalPrices() ищет устройства по regex и подставляет sell_price.
+ *  Если устройства в каталоге нет (price=0) — строка пропускается, чтобы
+ *  не положить «бесплатный Атол» в КП. */
+function buildFiscalLineItems(
+  config: FiscalConfig,
+  qty: number,
+  prices: FiscalPriceMap,
+): LineItem[] {
   if (qty <= 0) return []
   const out: LineItem[] = []
   const mkItem = (name: string, unitPrice: number): LineItem => ({
     name, category: 'fiscal', qty, unitPrice, discount: 0, total: unitPrice * qty,
   })
   if (config.pattern === 'internal') {
-    out.push(mkItem(FISCAL_DEVICES.atol42fa.name, FISCAL_DEVICES.atol42fa.price))
-    out.push(mkItem(FISCAL_DEVICES.fn15.name,     FISCAL_DEVICES.fn15.price))
-    if (config.includeBuiltinPrinter === 'p80') {
-      out.push(mkItem(FISCAL_DEVICES.printer80.name, FISCAL_DEVICES.printer80.price))
-    } else if (config.includeBuiltinPrinter === 'p58') {
-      out.push(mkItem(FISCAL_DEVICES.printer58.name, FISCAL_DEVICES.printer58.price))
+    if (prices.atol42fa > 0) out.push(mkItem(FISCAL_DEVICES.atol42fa.name, prices.atol42fa))
+    if (prices.fn15 > 0)     out.push(mkItem(FISCAL_DEVICES.fn15.name,     prices.fn15))
+    if (config.includeBuiltinPrinter === 'p80' && prices.printer80 > 0) {
+      out.push(mkItem(FISCAL_DEVICES.printer80.name, prices.printer80))
+    } else if (config.includeBuiltinPrinter === 'p58' && prices.printer58 > 0) {
+      out.push(mkItem(FISCAL_DEVICES.printer58.name, prices.printer58))
     }
   } else if (config.pattern === 'external') {
-    out.push(mkItem(FISCAL_DEVICES.poscenter02f.name, FISCAL_DEVICES.poscenter02f.price))
-    out.push(mkItem(FISCAL_DEVICES.fn15.name,         FISCAL_DEVICES.fn15.price))
+    if (prices.poscenter02f > 0) out.push(mkItem(FISCAL_DEVICES.poscenter02f.name, prices.poscenter02f))
+    if (prices.fn15 > 0)         out.push(mkItem(FISCAL_DEVICES.fn15.name,         prices.fn15))
   }
   return out
 }
@@ -84,6 +105,12 @@ export interface KPResult {
 export function calculateKP(req: ParsedRequest): KPResult {
   const sections: KPResult['sections'] = []
   let monthlyTotal = 0
+
+  // Живые цены фискалки из текущего каталога — populates by page.tsx через
+  // resolveFiscalPrices(catalog). Если caller (напр. в старом тесте) не
+  // пробросил — обнуляем, чтобы фискальные строки молча пропали, а не
+  // подставили устаревшие захардкоженные значения.
+  const fiscalPrices: FiscalPriceMap = req._fiscal_prices ?? ZERO_FISCAL_PRICES
 
   // ===== ОБОРУДОВАНИЕ =====
   // Маппинг kiosk_type → id кронштейна по умолчанию
@@ -174,7 +201,7 @@ export function calculateKP(req: ParsedRequest): KPResult {
     // (внешний POScenter-02Ф Cover + ФН 15). Дефолт ВЫКЛ — добавляется только
     // если менеджер поставил галку в форме (у клиента нет своей iiko-кассы).
     if (req.fiscal_pack) {
-      equipItems.push(...buildFiscalLineItems(TABLET_KIOSK_FISCAL_CONFIG, req.devices))
+      equipItems.push(...buildFiscalLineItems(TABLET_KIOSK_FISCAL_CONFIG, req.devices, fiscalPrices))
     }
 
     if (equipItems.length > 0) {
@@ -250,7 +277,7 @@ export function calculateKP(req: ParsedRequest): KPResult {
     if (req.fiscal_pack && req._kiosk_group) {
       const fiscalCfg = getFiscalConfigByGroup(req._kiosk_group)
       if (fiscalCfg) {
-        equipItems.push(...buildFiscalLineItems(fiscalCfg, req.devices))
+        equipItems.push(...buildFiscalLineItems(fiscalCfg, req.devices, fiscalPrices))
       }
     }
 

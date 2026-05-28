@@ -48,6 +48,17 @@ function baseForm(over: Partial<ParsedRequest> = {}): ParsedRequest {
     selected_kiosk_options: [],
     additional_licenses: [],
     fiscal_pack: false,
+    // Цены фискалки в проде живут в Google Sheets и читаются через
+    // resolveFiscalPrices(catalog). В тестах фиксируем те же значения,
+    // что лежали в каталоге на момент BG-1..5 (26.05.2026) — чтобы
+    // 11 fiscal-тестов остались интерпретируемыми по числам.
+    _fiscal_prices: {
+      atol42fa: 33230,
+      poscenter02f: 38250,
+      fn15: 23016,
+      printer58: 14515,
+      printer80: 20025,
+    },
     ...over,
   }
 }
