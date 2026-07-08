@@ -15,6 +15,9 @@ import {
   getFiscalPackPreview,
   resolveFiscalPrices,
   TABLET_KIOSK_FISCAL_CONFIG,
+  mountRole,
+  mountFrameIncluded,
+  SELECTABLE_MOUNT_ROLES,
   type SubscriptionPeriod,
 } from '@/lib/catalog'
 import { fetchAllCatalog, type DBProduct } from '@/lib/supabase'
@@ -51,6 +54,7 @@ const defaultForm: ParsedRequest = {
   selected_family: null,
   complectation: {},
   selected_options: [],
+  selected_mount_id: null,  // планшетный Kiosk — выбор кронштейна
 }
 
 // Маппинг старых категорий catalog.ts → новые
@@ -287,6 +291,26 @@ export default function Home() {
       if (t) {
         enrichedForm._tablet_kit = { tabletName: t.kpName || t.name, tabletPrice: tabletLivePrice(t) }
       }
+
+      // Крепление из каталога «Кронштейны»: выбранный кронштейн (или дефолт —
+      // настольный) + рамка-держатель (если не в комплекте) + крепление
+      // пинпада. Всё × devices, имена обезличенные. Заменяет хардкод.
+      const catMounts = catalog.filter(p => p.category === 'mount' && p.sell_price > 0)
+      const mkLine = (m: DBProduct) => ({ name: m.kp_name || m.name, category: 'mount', qty: form.devices, unitPrice: m.sell_price })
+      const selMount = form.selected_mount_id
+        ? catMounts.find(m => m.id === form.selected_mount_id)
+        : catMounts.find(m => mountRole(m.name, m.mount_type) === 'настольный')
+      const lines: NonNullable<ParsedRequest['_mount_lines']> = []
+      if (selMount) {
+        lines.push(mkLine(selMount))
+        if (!mountFrameIncluded(selMount.name, selMount.kp_name, selMount.frame_included)) {
+          const ramka = catMounts.find(m => mountRole(m.name, m.mount_type) === 'рамка')
+          if (ramka) lines.push(mkLine(ramka))
+        }
+      }
+      const pinpad = catMounts.find(m => mountRole(m.name, m.mount_type) === 'пинпад')
+      if (pinpad) lines.push(mkLine(pinpad))
+      if (lines.length > 0) enrichedForm._mount_lines = lines
     }
 
     const result = calculateKP(enrichedForm)
@@ -433,18 +457,52 @@ export default function Home() {
                     </div>
                   )}
 
-                  {/* Тип крепления — для Kiosk (настольный/настенный) */}
-                  {form.license_type === 'kiosk' && (
-                    <div>
-                      <label className="pc-flab">Тип крепления</label>
-                      <div className="grid grid-cols-2 gap-3">
-                        <RadioCard active={form.kiosk_type === 'desk'} onClick={() => update('kiosk_type', 'desk')}
-                          title="Настольный" desc="Кронштейн на стол" />
-                        <RadioCard active={form.kiosk_type === 'wall'} onClick={() => update('kiosk_type', 'wall')}
-                          title="Настенный" desc="Крепление на стену" />
+                  {/* Крепление — для Kiosk: выбор из каталога «Кронштейны»
+                      (настенные/настольные/стойки). Рамка и пинпад — авто. */}
+                  {form.license_type === 'kiosk' && (() => {
+                    const mountsSel = catalog.filter(p =>
+                      p.category === 'mount' && p.sell_price > 0 &&
+                      SELECTABLE_MOUNT_ROLES.includes(mountRole(p.name, p.mount_type)),
+                    )
+                    if (mountsSel.length === 0) return null
+                    const roleLabel: Record<string, string> = { 'настенный': 'Настенные', 'настольный': 'Настольные', 'стойка': 'Стойки' }
+                    return (
+                      <div>
+                        <label className="pc-flab">Крепление</label>
+                        <select
+                          value={form.selected_mount_id || ''}
+                          onChange={e => update('selected_mount_id', e.target.value || null)}
+                          className="pc-input"
+                          style={{
+                            appearance: 'none', WebkitAppearance: 'none', paddingRight: '24px',
+                            backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%239A9389' d='M6 8L1 3h10z'/%3E%3C/svg%3E\")",
+                            backgroundRepeat: 'no-repeat', backgroundPosition: 'right 2px center',
+                          }}
+                        >
+                          <option value="">Автоподбор (настольное)</option>
+                          {SELECTABLE_MOUNT_ROLES.map(role => {
+                            const grp = mountsSel.filter(m => mountRole(m.name, m.mount_type) === role)
+                            if (grp.length === 0) return null
+                            return (
+                              <optgroup key={role} label={roleLabel[role]}>
+                                {grp.map(m => {
+                                  const model = (m.description || '').match(/\bG\d{2,3}\b/)?.[0]
+                                  return (
+                                    <option key={m.id} value={m.id}>
+                                      {m.name}{model ? ` (${model})` : ''} — {m.sell_price.toLocaleString('ru-RU')} ₽
+                                    </option>
+                                  )
+                                })}
+                              </optgroup>
+                            )
+                          })}
+                        </select>
+                        <p className="mt-2 text-xs text-[var(--text-3)]">
+                          Рамка-держатель и крепление пинпада добавятся в комплект автоматически.
+                        </p>
                       </div>
-                    </div>
-                  )}
+                    )
+                  })()}
 
                   {/* Kiosk PRO — семейство → комплектация → опции (новая схема) */}
                   {form.license_type === 'kiosk_pro' && (
@@ -880,6 +938,10 @@ function parseRowToProduct(row: Record<string, unknown>, index: number, sheetCat
     // Phase 9 (H7): обезличенное имя для КП. Если в листе есть колонка
     // «Имя для КП» / «kp_name» — берём оттуда. Иначе null → используется name.
     kp_name: String(row['Имя для КП'] || row['kp_name'] || row['KP Name'] || '').trim() || null,
+    // Кронштейны: «Тип» (настенный/настольный/стойка/рамка/пинпад) + «Рамка»
+    // = «в комплекте» (держатель уже в стойке). Для других листов пусто.
+    mount_type: String(row['Тип'] || row['mount_type'] || '').trim() || null,
+    frame_included: /в\s*комплект|включ/i.test(String(row['Рамка'] || row['frame'] || '')),
   }
 }
 
