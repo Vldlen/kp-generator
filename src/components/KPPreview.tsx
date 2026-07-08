@@ -60,13 +60,22 @@ function findProductByName(catalog: DBProduct[], name: string): DBProduct | unde
   return catalog.find(p => p.name === name || p.kp_name === name)
 }
 
-// Получить товары той же категории для замены. Если продукт не найден —
-// возвращаем пустой каталог (раньше показывали ВЕСЬ каталог, что давало
-// кашу из 200 SKU без фильтра).
-function getAlternatives(catalog: DBProduct[], productName: string): DBProduct[] {
+// Маппинг категории строки КП → категория каталога. Нужен, когда строка несёт
+// обезличенное имя («Планшет Android…»), которого нет среди имён каталога —
+// тогда поиск по имени не срабатывает, и берём альтернативы по категории.
+const LINE_TO_CATALOG_CATEGORY: Record<string, string> = {
+  tablet: 'tablet', mount: 'mount', adapter: 'mount', peripheral: 'peripheral',
+}
+
+// Получить товары той же категории для замены. Раньше искали только по имени —
+// для планшета имя обезличено («Планшет Android…»), в каталоге оно реальное
+// («OnePlus Pad Go 2»), поиск проваливался → «нет альтернатив». Теперь при
+// промахе по имени опираемся на категорию строки (categoryHint).
+function getAlternatives(catalog: DBProduct[], productName: string, categoryHint?: string): DBProduct[] {
   const product = findProductByName(catalog, productName)
-  if (!product) return []
-  return catalog.filter(p => p.category === product.category)
+  const cat = product?.category ?? (categoryHint ? LINE_TO_CATALOG_CATEGORY[categoryHint] : undefined)
+  if (!cat) return []
+  return catalog.filter(p => p.category === cat)
 }
 
 // Сгруппировать массив товаров по категориям
@@ -85,15 +94,16 @@ function groupByCategory(products: DBProduct[]): { label: string; category: stri
 
 // --- Селектор продукта из каталога ---
 function ProductSelector({
-  currentName, catalog, onSelect, onClose,
+  currentName, catalog, categoryHint, onSelect, onClose,
 }: {
   currentName: string
   catalog: DBProduct[]
+  categoryHint?: string
   onSelect: (product: DBProduct) => void
   onClose: () => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
-  const alternatives = getAlternatives(catalog, currentName)
+  const alternatives = getAlternatives(catalog, currentName, categoryHint)
   const groups = groupByCategory(alternatives)
 
   useEffect(() => {
@@ -502,7 +512,7 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
               </thead>
               <tbody>
                 {section.items.map((item, ii) => {
-                  const hasCatalog = isCatalogItem(item.name) || item.name === 'Новая позиция'
+                  const hasCatalog = getAlternatives(catalog, item.name, item.category).length > 0 || item.name === 'Новая позиция'
                   const selectorOpen = openSelector?.[0] === si && openSelector?.[1] === ii
 
                   return (
@@ -532,6 +542,7 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
                           <ProductSelector
                             currentName={item.name}
                             catalog={catalog}
+                            categoryHint={item.category}
                             onSelect={product => replaceWithProduct(si, ii, product)}
                             onClose={() => setOpenSelector(null)}
                           />
