@@ -323,7 +323,6 @@ export function calculateKP(req: ParsedRequest): KPResult {
     if (innoLic) {
       const isPerLocation = innoLic.unit === 'location'
       const qty = isPerLocation ? req.locations : req.devices
-      const unitLabel = isPerLocation ? 'лок.' : 'устр.'
 
       const basePrice = innoLic.pricePerMonth
       const unitPrice = getLicensePrice(basePrice, qty)
@@ -339,7 +338,9 @@ export function calculateKP(req: ParsedRequest): KPResult {
       // к «120 000» в столбце Цена и провоцировало ручную «правку» обратно
       // к 10 000 (теряя множитель месяцев).
       licItems.push({
-        name: `${innoLic.name} × ${qty} ${unitLabel} (${period.label})`,
+        // Кол-во и единица — в отдельной колонке «Кол-во», в имени не дублируем.
+        // Период в скобках → в .pptx рендерится мелким серым подзаголовком.
+        name: `${innoLic.name} (${period.label})`,
         category: 'license_inno',
         qty,
         unitPrice,
@@ -420,11 +421,9 @@ export function calculateKP(req: ParsedRequest): KPResult {
         addon.unit === 'device'   ? req.devices   : 1
       if (qty <= 0) continue
       monthlyTotal += addon.pricePerMonth * qty
-      const unitLabel =
-        addon.unit === 'location' ? 'лок.' :
-        addon.unit === 'device'   ? 'устр.' : 'шт.'
       licItems.push({
-        name: `${addon.name} × ${qty} ${unitLabel} (${period_.label})`,
+        // Кол-во — в колонке; в имени только период (в .pptx — серый подзаголовок).
+        name: `${addon.name} (${period_.label})`,
         category: 'license_inno',
         qty,
         unitPrice: addon.pricePerMonth,

@@ -19,8 +19,8 @@ async function loadSlideXml(): Promise<string> {
 const twoLicenses: KPResult['sections'][0] = {
   title: 'Лицензии и подписки',
   items: [
-    { name: 'inno clouds Киоск Профи × 1 устр. (3 месяца)', category: 'license_inno', qty: 1, unitPrice: 16200, months: 3, discount: 0, total: 48600 },
-    { name: 'inno clouds Электронная очередь × 1 лок. (3 месяца)', category: 'license_inno', qty: 1, unitPrice: 2000, months: 3, discount: 0, total: 6000 },
+    { name: 'inno clouds Киоск Профи (3 месяца)', category: 'license_inno', qty: 1, unitPrice: 16200, months: 3, discount: 0, total: 48600 },
+    { name: 'inno clouds Электронная очередь (3 месяца)', category: 'license_inno', qty: 1, unitPrice: 2000, months: 3, discount: 0, total: 6000 },
   ],
   subtotal: 54600,
 }
@@ -45,6 +45,18 @@ describe('PPTX: карточка «Лицензии и подписки» — н
     let xml = fillCard(orig, RIGHT_TOP_CARD, twoLicenses)
     xml = adjustCardGeometry(xml, RIGHT_TOP_CARD, twoLicenses.items.length, { noGrow: true })
     expect(containerCy(xml)).toBeLessThanOrEqual(before)
+  })
+
+  it('период уходит на 2-ю строку мелким серым (подзаголовок)', async () => {
+    let xml = await loadSlideXml()
+    xml = fillCard(xml, RIGHT_TOP_CARD, twoLicenses)
+    // основное имя — без периода (период вынесен в подзаголовок)
+    expect(xml).toContain('<a:t>inno clouds Киоск Профи</a:t>')
+    expect(xml).toContain('<a:t>inno clouds Электронная очередь</a:t>')
+    // хвост «3 месяца» — отдельным серым run у каждой из 2 лицензий
+    expect(xml).toContain('<a:t>3 месяца</a:t>')
+    expect(xml.match(/<a:t>3 месяца<\/a:t>/g)!.length).toBe(2)
+    expect(xml).toContain('9A9389')  // серый цвет подзаголовка
   })
 
   it('одна лицензия — без клонов, поведение как раньше', async () => {

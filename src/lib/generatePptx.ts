@@ -208,6 +208,52 @@ function replaceShapeText(xml: string, shapeName: string, newText: string): stri
   return xml.substring(0, spStart) + block + xml.substring(spEndFull)
 }
 
+// Хвост длинного имени (период лицензии «(3 месяца)» / форм-фактор киоска
+// «(напольный)») выносим на вторую строку мелким серым — вместо некрасивого
+// автопереноса. Тот же Arial (кириллица), sz 510 (мельче основного 638), серый.
+function subtitleRun(text: string): string {
+  return `<a:br/><a:r><a:rPr lang="ru-RU" sz="510" b="0" dirty="0"><a:solidFill><a:srgbClr val="9A9389"/></a:solidFill><a:latin typeface="Arial" pitchFamily="34" charset="0"/><a:ea typeface="Arial" pitchFamily="34" charset="-122"/><a:cs typeface="Arial" pitchFamily="34" charset="-120"/></a:rPr><a:t>${escapeXml(text)}</a:t></a:r>`
+}
+
+function replaceShapeTextWithSubtitle(xml: string, shapeName: string, main: string, sub: string): string {
+  const namePattern = `name="${shapeName}"`
+  const nameIdx = xml.indexOf(namePattern)
+  if (nameIdx === -1) return xml
+  let spStart = xml.lastIndexOf('<p:sp>', nameIdx)
+  if (spStart === -1) spStart = xml.lastIndexOf('<p:sp ', nameIdx)
+  if (spStart === -1) return xml
+  const spEnd = xml.indexOf('</p:sp>', nameIdx)
+  if (spEnd === -1) return xml
+  const spEndFull = spEnd + '</p:sp>'.length
+  let block = xml.substring(spStart, spEndFull)
+
+  // основной текст → в первый <a:t>, остальные опустошаем
+  let firstDone = false
+  block = block.replace(/<a:t(?:\s[^>]*)?>([^<]*)<\/a:t>/g, () => {
+    if (!firstDone) { firstDone = true; return `<a:t>${escapeXml(main)}</a:t>` }
+    return '<a:t></a:t>'
+  })
+
+  // перенос + серый run в конец первого параграфа (перед endParaRPr / </a:p>)
+  const run = subtitleRun(sub)
+  const epr = block.indexOf('<a:endParaRPr')
+  if (epr !== -1) {
+    block = block.slice(0, epr) + run + block.slice(epr)
+  } else {
+    const pEnd = block.indexOf('</a:p>')
+    if (pEnd !== -1) block = block.slice(0, pEnd) + run + block.slice(pEnd)
+  }
+  return xml.substring(0, spStart) + block + xml.substring(spEndFull)
+}
+
+/** Заполняет ячейку имени. Если имя оканчивается на «(хвост)» — хвост уходит
+ *  на вторую строку мелким серым (период лицензии / форм-фактор киоска). */
+function fillNameCell(xml: string, shapeName: string, fullName: string): string {
+  const m = fullName.match(/^(.+?)\s*\(([^()]+)\)\s*$/)
+  if (m && m[1].trim()) return replaceShapeTextWithSubtitle(xml, shapeName, m[1].trim(), m[2].trim())
+  return replaceShapeText(xml, shapeName, fullName)
+}
+
 function removeShape(xml: string, shapeName: string): string {
   const namePattern = `name="${shapeName}"`
   const nameIdx = xml.indexOf(namePattern)
@@ -312,7 +358,7 @@ export function fillCard(xml: string, card: CardMap, section: KPResult['sections
       const priceCell = isSub
         ? `${fmtNum(item.unitPrice)}/\u043c\u0435\u0441`
         : fmtNum(item.unitPrice)
-      xml = replaceShapeText(xml, row.texts[0], item.name)
+      xml = fillNameCell(xml, row.texts[0], item.name)
       xml = replaceShapeText(xml, row.texts[1], String(item.qty))
       xml = replaceShapeText(xml, row.texts[2], priceCell)
       xml = replaceShapeText(xml, row.texts[3], item.discount > 0 ? `-${item.discount}%` : '\u2014')
