@@ -56,7 +56,7 @@ export interface ParsedRequest {
   _kiosk_equip_lines?: import('./catalog-schema').EquipLine[]
   /** Живые позиции планшетного комплекта из каталога (Планшеты/Кронштейны/
    *  Периферия) — цена + обезличенное имя. Убирает дрейф хардкода catalog.ts. */
-  _tablet_kit?: { tabletName?: string; tabletPrice?: number }
+  _tablet_kit?: { tabletName?: string; tabletPrice?: number; tabletCost?: number }
   /** Строки крепления планшетного Kiosk (выбранный кронштейн + рамка-держатель,
    *  если не в комплекте + крепление пинпада) — собраны формой из живого
    *  каталога «Кронштейны». Заменяют хардкодный mountByType + адаптер + пинпад. */

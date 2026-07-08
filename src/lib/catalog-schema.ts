@@ -260,25 +260,25 @@ const FISCAL_MATCH = {
 export function fiscalLines(
   rule: FamilyRule | undefined,
   cat: Catalog,
-): { name: string; price: number }[] {
+): { name: string; price: number; cost: number }[] {
   if (!rule || rule.fiscalPattern === 'нет') return []
   const fiscalItems = cat.items.filter(i => i.type === 'фискал')
   const find = (pred: (n: string) => boolean) => fiscalItems.find(i => pred(i.name))
 
-  const out: { name: string; price: number }[] = []
+  const out: { name: string; price: number; cost: number }[] = []
   if (rule.fiscalPattern === 'встроенный') {
     // ФР (Ритейл Комбо-01Ф) уже в составе киоска — строкой «в составе» 0 ₽,
     // чтобы клиент видел ККТ (юр. прозрачность), но не платил дважды.
     const kombo = find(FISCAL_MATCH.kombo)
-    if (kombo) out.push({ name: kombo.name, price: kombo.sellPrice })
+    if (kombo) out.push({ name: kombo.name, price: kombo.sellPrice, cost: kombo.costPrice })
   } else {
     const fr = rule.fiscalPattern === 'внешний' ? find(FISCAL_MATCH.poscenter02f)
       : rule.fiscalPattern === 'внутренний' ? find(FISCAL_MATCH.atol42fa)
       : undefined
-    if (fr && fr.sellPrice > 0) out.push({ name: fr.name, price: fr.sellPrice })
+    if (fr && fr.sellPrice > 0) out.push({ name: fr.name, price: fr.sellPrice, cost: fr.costPrice })
   }
   const fn = find(FISCAL_MATCH.fn15)
-  if (fn && fn.sellPrice > 0) out.push({ name: fn.name, price: fn.sellPrice })
+  if (fn && fn.sellPrice > 0) out.push({ name: fn.name, price: fn.sellPrice, cost: fn.costPrice })
   return out
 }
 
@@ -354,6 +354,7 @@ export interface EquipLine {
   category: string   // kiosk | mount | kiosk_option | fiscal
   qty: number
   unitPrice: number
+  cost?: number      // себестоимость за единицу — для маржи менеджера (не в .pptx)
 }
 
 /** Полный комплект Kiosk PRO: модель (по комплектации) + опции (обязательные и
@@ -375,7 +376,7 @@ export function buildKioskEquipment(
 
   const model = resolveModel(models, selection)
   if (model) {
-    lines.push({ name: clientName(model, rule), category: 'kiosk', qty, unitPrice: model.sellPrice })
+    lines.push({ name: clientName(model, rule), category: 'kiosk', qty, unitPrice: model.sellPrice, cost: model.costPrice })
   }
 
   for (const o of resolveChosenOptions(familyOptions(cat, familyKey), selectedOptionIds)) {
@@ -383,13 +384,13 @@ export function buildKioskEquipment(
     lines.push({
       name: clientName(o, rule),
       category: o.type === 'крепление' ? 'mount' : 'kiosk_option',
-      qty, unitPrice: o.sellPrice,
+      qty, unitPrice: o.sellPrice, cost: o.costPrice,
     })
   }
 
   if (fiscalOn) {
     for (const f of fiscalLines(rule, cat)) {
-      lines.push({ name: f.name, category: 'fiscal', qty, unitPrice: f.price })
+      lines.push({ name: f.name, category: 'fiscal', qty, unitPrice: f.price, cost: f.cost })
     }
   }
   return lines

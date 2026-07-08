@@ -98,25 +98,60 @@ export default function Home() {
   // Инициализируется встроенным фолбэком; перекрывается живыми вкладками
   // «Номенклатура (киоски)» / «Правила семейств», когда они появятся в таблице.
   const [catalog2, setCatalog2] = useState<Catalog>(() => buildCatalog(FALLBACK_NOMENCLATURE, FALLBACK_FAMILIES))
+  // Откуда сейчас данные каталога: грузятся / живая таблица / резервный снимок.
+  // Резервный снимок = встроенные данные; цены могут быть неактуальны — менеджер
+  // должен об этом знать, чтобы не отправить КП по старым ценам.
+  const [catalogSource, setCatalogSource] = useState<'loading' | 'live' | 'fallback'>('loading')
+  const [draftAvailable, setDraftAvailable] = useState<ParsedRequest | null>(null)  // несохранённый черновик из localStorage
   const [theme, setTheme] = useState<'light' | 'dark'>('light')
   const [dateStr, setDateStr] = useState('')
 
-  // Загружаем каталог: сначала Google Sheets (все листы), потом Supabase как fallback
+  // Загружаем каталог: сначала Google Sheets (все листы), потом Supabase как
+  // fallback. Источник фиксируем в catalogSource — если живые данные не
+  // подъехали, менеджер увидит предупреждение (см. баннер ниже).
   useEffect(() => {
+    let done = false
     fetchGoogleSheetProducts()
       .then(({ products, catalog2: c2 }) => {
-        // Новая схема (вкладки «Номенклатура»/«Правила») перекрывает фолбэк.
         if (c2) setCatalog2(c2)
-        if (products.length > 0) { setCatalog(products); return }
+        if (products.length > 0) { setCatalog(products); setCatalogSource('live'); done = true; return }
         if (!c2) throw new Error('Google Sheets пуст')
+        setCatalogSource('live')  // есть новые вкладки, но старых листов нет — считаем живым
+        done = true
       })
       .catch(() => {
         // Fallback на Supabase (для старой схемы). catalog2 остаётся встроенным.
-        fetchAllCatalog().then(data => {
-          if (data.length > 0) setCatalog(data)
-        })
+        fetchAllCatalog()
+          .then(data => {
+            if (data.length > 0) { setCatalog(data); setCatalogSource('live') }
+            else setCatalogSource('fallback')
+            done = true
+          })
+          .catch(() => { setCatalogSource('fallback'); done = true })
       })
+    // Страховка: если ни один путь не завершился (висит) — через 20с показываем
+    // предупреждение о резервных данных, чтобы UI не остался в «загрузке» навсегда.
+    const t = setTimeout(() => { if (!done) setCatalogSource(prev => prev === 'loading' ? 'fallback' : prev) }, 20000)
+    return () => clearTimeout(t)
   }, [])
+
+  // Черновик КП: на старте предлагаем восстановить последнюю форму из localStorage.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('kp-draft')
+      if (raw) {
+        const d = JSON.parse(raw) as ParsedRequest
+        if (d && (d.client_name?.trim() || d.license_type)) setDraftAvailable(d)
+      }
+    } catch { /* noop */ }
+  }, [])
+
+  // Автосохранение формы (пустую форму по умолчанию не сохраняем, чтобы не
+  // затирать черновик до того, как менеджер что-то ввёл).
+  useEffect(() => {
+    if (!form.client_name.trim() && !form.license_type) return
+    try { localStorage.setItem('kp-draft', JSON.stringify(form)) } catch { /* noop */ }
+  }, [form])
 
   // Подхватываем тему, выставленную no-flash скриптом, + дату КП
   useEffect(() => {
@@ -293,21 +328,21 @@ export default function Home() {
         ? tabletList.find(x => x.id === form.selected_tablet_id) || tabletList[0]
         : tabletList[0]
       if (t) {
-        enrichedForm._tablet_kit = { tabletName: tabletKpName(t.name, t.kp_name), tabletPrice: t.sell_price }
+        enrichedForm._tablet_kit = { tabletName: tabletKpName(t.name, t.kp_name), tabletPrice: t.sell_price, tabletCost: t.cost_price }
       }
 
       // Периферия из каталога (лист «Периферия»), × devices. Если каталог без
       // периферии — калькулятор возьмёт хардкод (fallback).
       const periphLines = catalog
         .filter(p => p.category === 'peripheral' && p.sell_price > 0)
-        .map(p => ({ name: p.kp_name || p.name, category: 'peripheral', qty: form.devices, unitPrice: p.sell_price }))
+        .map(p => ({ name: p.kp_name || p.name, category: 'peripheral', qty: form.devices, unitPrice: p.sell_price, cost: p.cost_price }))
       if (periphLines.length > 0) enrichedForm._periph_lines = periphLines
 
       // Крепление из каталога «Кронштейны»: выбранный кронштейн (или дефолт —
       // настольный) + рамка-держатель (если не в комплекте) + крепление
       // пинпада. Всё × devices, имена обезличенные. Заменяет хардкод.
       const catMounts = catalog.filter(p => p.category === 'mount' && p.sell_price > 0)
-      const mkLine = (m: DBProduct) => ({ name: m.kp_name || m.name, category: 'mount', qty: form.devices, unitPrice: m.sell_price })
+      const mkLine = (m: DBProduct) => ({ name: m.kp_name || m.name, category: 'mount', qty: form.devices, unitPrice: m.sell_price, cost: m.cost_price })
       const selMount = form.selected_mount_id
         ? catMounts.find(m => m.id === form.selected_mount_id)
         : catMounts.find(m => mountRole(m.name, m.mount_type) === 'настольный')
@@ -346,6 +381,8 @@ export default function Home() {
     setStep('form')
     setForm({ ...defaultForm })
     setKP(null)
+    setDraftAvailable(null)
+    try { localStorage.removeItem('kp-draft') } catch { /* noop */ }
   }
 
   const isInno = form.company === 'inno'
@@ -386,6 +423,37 @@ export default function Home() {
 
         {step === 'form' && (
           <>
+            {/* Статус каталога: живые данные vs резервный снимок. */}
+            {catalogSource !== 'live' && (
+              <div className="pc-rise" style={{ padding: '14px 32px 0' }}>
+                {catalogSource === 'loading' ? (
+                  <div className="pc-hint" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Каталог загружается из Google Sheets…
+                  </div>
+                ) : (
+                  <div className="pc-warn" style={{ margin: 0 }}>
+                    ⚠ Работаю на <b>резервных данных</b> — цены могут быть неактуальны. Проверьте связь и нажмите «Обновить каталог из Google Sheets» внизу.
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Черновик: предложение восстановить последнюю форму. */}
+            {draftAvailable && (
+              <div className="pc-rise" style={{ padding: '14px 32px 0' }}>
+                <div className="pc-hint" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                  <span>↩ Есть незавершённый черновик{draftAvailable.client_name ? ` — «${draftAvailable.client_name}»` : ''}.</span>
+                  <span style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                    <button type="button" className="pc-ghost" onClick={() => { setForm({ ...defaultForm, ...draftAvailable }); setDraftAvailable(null) }}>Восстановить</button>
+                    <button type="button" className="pc-ghost" onClick={() => setDraftAvailable(null)}>Скрыть</button>
+                  </span>
+                </div>
+              </div>
+            )}
+
             {/* Компания */}
             <Section title="Компания">
               <div className="grid grid-cols-2 gap-3">
@@ -732,7 +800,7 @@ export default function Home() {
             {/* Подвал — синхронизация + кнопка */}
             <div className="pc-rise" style={{ borderTop: '1px solid var(--rule)', padding: '28px 32px' }}>
               <div className="mb-5">
-                <GoogleSyncButton onSync={(data, c2) => { if (data.length) setCatalog(data); if (c2) setCatalog2(c2) }} />
+                <GoogleSyncButton onSync={(data, c2) => { if (data.length) setCatalog(data); if (c2) setCatalog2(c2); if (data.length || c2) setCatalogSource('live') }} />
               </div>
               <div className="flex items-center gap-5">
                 <button
@@ -832,7 +900,7 @@ async function fetchGoogleSheetProducts(): Promise<{ products: DBProduct[]; cata
   // Способ 1: пробуем загрузить как XLSX (содержит все листы сразу)
   try {
     const xlsxUrl = `https://docs.google.com/spreadsheets/d/${GOOGLE_SHEET_ID}/export?format=xlsx`
-    const resp = await fetch(xlsxUrl)
+    const resp = await fetch(xlsxUrl, { signal: AbortSignal.timeout(15000) })
     if (resp.ok) {
       const XLSX = await loadXLSX()
       const buf = await resp.arrayBuffer()
@@ -861,7 +929,7 @@ async function fetchGoogleSheetProducts(): Promise<{ products: DBProduct[]; cata
   for (let gid = 0; gid < 10; gid++) {
     try {
       const url = `https://docs.google.com/spreadsheets/d/${GOOGLE_SHEET_ID}/export?format=csv&gid=${gid}`
-      const resp = await fetch(url)
+      const resp = await fetch(url, { signal: AbortSignal.timeout(15000) })
       if (!resp.ok) break  // gid не существует — дальше не пробуем
       const csvText = await resp.text()
       if (!csvText.trim() || csvText.includes('<!DOCTYPE')) break

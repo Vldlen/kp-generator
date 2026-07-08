@@ -136,7 +136,7 @@ describe('fiscalLines — по паттерну, цены из каталога'
   it('внешний (МС 21) → POScenter-02Ф 38 250 + ФН 20 832 (реальные имена)', () => {
     const rule = cat.familyByKey.get(key('Касса МС 21 N'))
     const f = fiscalLines(rule, cat)
-    expect(f).toEqual([
+    expect(f.map(x => ({ name: x.name, price: x.price }))).toEqual([
       { name: 'ККТ «POScenter-02Ф» Cover', price: 38250 },
       { name: 'Фискальный накопитель ФН 15', price: 20832 },
     ])
@@ -150,7 +150,7 @@ describe('fiscalLines — по паттерну, цены из каталога'
   it('K320 паттерн «встроенный» → Комбо (в составе, 0 ₽) + ФН, без Атол/принтера', () => {
     const rule = cat.familyByKey.get(key('POScenter K'))
     expect(rule?.fiscalPattern).toBe('встроенный')
-    expect(fiscalLines(rule, cat)).toEqual([
+    expect(fiscalLines(rule, cat).map(x => ({ name: x.name, price: x.price }))).toEqual([
       { name: 'ККТ «Ритейл Комбо-01Ф» (в составе киоска)', price: 0 },
       { name: 'Фискальный накопитель ФН 15', price: 20832 },
     ])
@@ -210,7 +210,7 @@ describe('buildKioskEquipment — полный комплект', () => {
   const mc24 = key('Киоск самообслуживания МС 24')
   it('МС 24 N100 + фискалка: модель (обезличена) + принтер80 + Атол + ФН (реальные)', () => {
     const lines = buildKioskEquipment(cat, mc24, { processor: 'N100' }, new Set(), true, 1)
-    expect(lines).toEqual([
+    expect(lines.map(l => ({ name: l.name, category: l.category, qty: l.qty, unitPrice: l.unitPrice }))).toEqual([
       { name: 'Киоск самообслуживания 24″ (напольный)', category: 'kiosk', qty: 1, unitPrice: 180768 },
       { name: 'Принтер чеков 80мм', category: 'kiosk_option', qty: 1, unitPrice: 20026 },
       { name: 'ККТ «Атол 42 ФА»', category: 'fiscal', qty: 1, unitPrice: 33230 },
@@ -222,7 +222,7 @@ describe('buildKioskEquipment — полный комплект', () => {
   })
   it('qty масштабирует все строки', () => {
     const lines = buildKioskEquipment(cat, mc24, { processor: 'i3' }, new Set(), false, 3)
-    expect(lines[0]).toEqual({ name: 'Киоск самообслуживания 24″ (напольный)', category: 'kiosk', qty: 3, unitPrice: 186480 })
+    expect(lines[0]).toMatchObject({ name: 'Киоск самообслуживания 24″ (напольный)', category: 'kiosk', qty: 3, unitPrice: 186480 })
     expect(lines.every(l => l.qty === 3)).toBe(true)
   })
   it('T-215: сканер «в комплекте» (0 ₽) в строки не попадает', () => {
