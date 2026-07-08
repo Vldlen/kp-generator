@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { formatMoney, recomputeLineTotal, type KPResult, type LineItem } from '@/lib/calculator'
+import { formatMoney, recomputeLineTotal, sanityWarnings, type KPResult, type LineItem } from '@/lib/calculator'
 import type { ParsedRequest } from '@/lib/prompt'
 import type { DBProduct } from '@/lib/supabase'
 import {
@@ -289,6 +289,23 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
     return Math.round(licenseTotal / months)
   })()
 
+  // Маржа оборудования — ТОЛЬКО для менеджера, в .pptx клиенту не уходит
+  // (generatePptx использует только name/qty/price/total). Считается по строкам
+  // с себестоимостью (оборудование); лицензии/услуги (софт) — без cost, не в счёт.
+  const marginInfo = (() => {
+    let sell = 0, cost = 0, haveCost = false
+    for (const s of sections) for (const i of s.items) {
+      if (typeof i.cost === 'number' && i.cost >= 0) {
+        sell += i.total
+        cost += i.cost * i.qty
+        haveCost = true
+      }
+    }
+    if (!haveCost || sell <= 0) return null
+    const profit = sell - cost
+    return { cost, profit, pct: Math.round((profit / sell) * 100) }
+  })()
+
   useEffect(() => {
     return () => {
       if (undoTimerRef.current) clearTimeout(undoTimerRef.current)
@@ -314,6 +331,7 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
         ...item,
         name: getKpName(product.name, product.kp_name),
         unitPrice: product.sell_price,
+        cost: product.cost_price,  // держим себестоимость в актуальном виде для маржи
         qty: oldQty,
       })
       next[si] = recalcSection(next[si])
@@ -432,6 +450,17 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
         '\n\nУменьшите количество позиций в указанных секциях и попробуйте снова.'
       )
       return
+    }
+
+    // Бизнес-проверки (не блокируют — предупреждают о типовых ошибках).
+    const warnings = sanityWarnings(currentKP, parsed)
+    if (warnings.length > 0) {
+      const ok = window.confirm(
+        'Проверьте перед отправкой клиенту:\n\n' +
+        warnings.map(w => '• ' + w).join('\n') +
+        '\n\nВсё равно скачать?'
+      )
+      if (!ok) return
     }
 
     setGenerating(true)
@@ -621,6 +650,23 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
           </section>
         )
       })}
+
+      {/* Маржа — только для менеджера (в КП клиенту не попадает) */}
+      {marginInfo && (
+        <div className="pc-rise" style={{ padding: '0 32px 4px' }}>
+          <div style={{
+            border: '1px dashed var(--rule)', borderRadius: 8, padding: '9px 14px',
+            display: 'flex', flexWrap: 'wrap', gap: '4px 20px', alignItems: 'baseline',
+            fontSize: 12.5, color: 'var(--text-2)',
+          }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '.08em', color: 'var(--text-3)' }}>
+              🔒 только для вас · не в КП
+            </span>
+            <span>себестоимость оборуд.: <b style={{ color: 'var(--text)' }}>{formatMoney(marginInfo.cost)}</b></span>
+            <span>маржа: <b style={{ color: marginInfo.pct >= 20 ? 'var(--accent)' : 'var(--danger)' }}>{formatMoney(marginInfo.profit)} · {marginInfo.pct}%</b></span>
+          </div>
+        </div>
+      )}
 
       {/* К оплате */}
       <div className="pc-totalcard pc-rise">

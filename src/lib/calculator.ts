@@ -32,6 +32,9 @@ export interface LineItem {
   unitPrice: number
   discount: number    // процент
   total: number
+  /** Себестоимость за единицу — для маржи менеджера в превью. НЕ уходит в .pptx
+   *  клиенту (generatePptx использует только name/qty/unitPrice/total). */
+  cost?: number
   // Период подписки в месяцах. Используется для лицензий и подписок:
   // total = unitPrice × qty × months × (1 - discount/100).
   // Для оборудования и разовых услуг — undefined (трактуется как 1, ничего
@@ -145,6 +148,7 @@ export function calculateKP(req: ParsedRequest): KPResult {
         unitPrice: tabPrice,
         discount: 0,
         total: tabPrice * req.devices,
+        cost: req._tablet_kit?.tabletCost ?? selectedTablet.costPrice,
       })
     }
 
@@ -156,16 +160,16 @@ export function calculateKP(req: ParsedRequest): KPResult {
       for (const l of req._mount_lines) {
         equipItems.push({
           name: l.name, category: l.category, qty: l.qty,
-          unitPrice: l.unitPrice, discount: 0, total: l.unitPrice * l.qty,
+          unitPrice: l.unitPrice, discount: 0, total: l.unitPrice * l.qty, cost: l.cost,
         })
       }
     } else {
       const mount = getProductById(mountByType[req.kiosk_type || 'desk'])
-      if (mount) equipItems.push({ name: mount.kpName || mount.name, category: 'mount', qty: req.devices, unitPrice: mount.sellPrice, discount: 0, total: mount.sellPrice * req.devices })
+      if (mount) equipItems.push({ name: mount.kpName || mount.name, category: 'mount', qty: req.devices, unitPrice: mount.sellPrice, discount: 0, total: mount.sellPrice * req.devices, cost: mount.costPrice })
       const adapter = getProductById('mount-onkron-adapter')
-      if (adapter) equipItems.push({ name: adapter.kpName || adapter.name, category: 'adapter', qty: req.devices, unitPrice: adapter.sellPrice, discount: 0, total: adapter.sellPrice * req.devices })
+      if (adapter) equipItems.push({ name: adapter.kpName || adapter.name, category: 'adapter', qty: req.devices, unitPrice: adapter.sellPrice, discount: 0, total: adapter.sellPrice * req.devices, cost: adapter.costPrice })
       const pinpad = getProductById('mount-pinpad-bracket')
-      if (pinpad) equipItems.push({ name: pinpad.kpName || pinpad.name, category: 'peripheral', qty: req.devices, unitPrice: pinpad.sellPrice, discount: 0, total: pinpad.sellPrice * req.devices })
+      if (pinpad) equipItems.push({ name: pinpad.kpName || pinpad.name, category: 'peripheral', qty: req.devices, unitPrice: pinpad.sellPrice, discount: 0, total: pinpad.sellPrice * req.devices, cost: pinpad.costPrice })
     }
 
     // Периферия: живые строки из формы (_periph_lines, лист «Периферия») или
@@ -175,14 +179,14 @@ export function calculateKP(req: ParsedRequest): KPResult {
       for (const l of req._periph_lines) {
         equipItems.push({
           name: l.name, category: l.category, qty: l.qty,
-          unitPrice: l.unitPrice, discount: 0, total: l.unitPrice * l.qty,
+          unitPrice: l.unitPrice, discount: 0, total: l.unitPrice * l.qty, cost: l.cost,
         })
       }
     } else {
       for (const p of peripherals) {
         equipItems.push({
           name: p.kpName || p.name, category: 'peripheral', qty: req.devices,
-          unitPrice: p.sellPrice, discount: 0, total: p.sellPrice * req.devices,
+          unitPrice: p.sellPrice, discount: 0, total: p.sellPrice * req.devices, cost: p.costPrice,
         })
       }
     }
@@ -215,7 +219,7 @@ export function calculateKP(req: ParsedRequest): KPResult {
       for (const l of req._kiosk_equip_lines) {
         equipItems.push({
           name: l.name, category: l.category, qty: l.qty,
-          unitPrice: l.unitPrice, discount: 0, total: l.unitPrice * l.qty,
+          unitPrice: l.unitPrice, discount: 0, total: l.unitPrice * l.qty, cost: l.cost,
         })
       }
     } else {
@@ -489,4 +493,31 @@ export function calculateKP(req: ParsedRequest): KPResult {
 
 export function formatMoney(n: number): string {
   return new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 }).format(n)
+}
+
+// ---------- Бизнес-проверки перед выгрузкой (не блокируют, предупреждают) ----------
+//
+// Ловим типовые ошибки конфигурации до того, как КП уйдёт клиенту: необычные
+// скидки, нулевые цены, подозрительно низкий итог, киоск без фискалки. Менеджер
+// видит список и решает — исправить или всё равно скачать.
+export function sanityWarnings(kp: KPResult, req: ParsedRequest): string[] {
+  const w: string[] = []
+  for (const s of kp.sections) {
+    for (const i of s.items) {
+      if (i.discount > 30) w.push(`Скидка ${i.discount}% на «${i.name}» — необычно высокая.`)
+      if (i.unitPrice === 0) w.push(`«${i.name}» с нулевой ценой — проверьте (цена по запросу?).`)
+    }
+  }
+  if (kp.grandTotal > 0 && kp.grandTotal < 20000) {
+    w.push(`Итог ${formatMoney(kp.grandTotal)} — подозрительно мало, проверьте позиции.`)
+  }
+  const equip = kp.sections.find(s => s.title === 'Оборудование')
+  if (equip) {
+    const hasKiosk = equip.items.some(i => i.category === 'kiosk')
+    const hasFiscal = equip.items.some(i => i.category === 'fiscal')
+    if (hasKiosk && !hasFiscal) w.push('В готовом киоске нет фискального оборудования — у клиента своя касса?')
+    // Kiosk PRO, но ни одной строки-киоска (fallback подставил не тот) — сигнал.
+    if (req.license_type === 'kiosk_pro' && !hasKiosk) w.push('В КП нет строки киоска — проверьте, что модель выбрана.')
+  }
+  return w
 }

@@ -20,6 +20,7 @@ import {
   calculateKP,
   lineMonths,
   recomputeLineTotal,
+  sanityWarnings,
   type LineItem,
 } from '../calculator'
 import type { ParsedRequest } from '../prompt'
@@ -1004,5 +1005,39 @@ describe('Планшетный Kiosk — крепление из _mount_lines', 
     const cats = findSection(kp, 'Оборудование')!.items.map(i => i.category)
     expect(cats).toContain('mount')
     expect(cats).toContain('adapter')
+  })
+})
+
+describe('Себестоимость и проверки перед выгрузкой', () => {
+  it('cost пробрасывается из _kiosk_equip_lines в LineItem', () => {
+    const kp = calculateKP(baseForm({
+      license_type: 'kiosk_pro', devices: 2,
+      _kiosk_equip_lines: [{ name: 'Киоск', category: 'kiosk', qty: 2, unitPrice: 100000, cost: 60000 }],
+    }))
+    expect(findSection(kp, 'Оборудование')!.items[0].cost).toBe(60000)
+  })
+
+  it('sanityWarnings: киоск без фискалки, нулевая цена, высокая скидка', () => {
+    const kp = calculateKP(baseForm({
+      license_type: 'kiosk_pro', devices: 1,
+      _kiosk_equip_lines: [{ name: 'Киоск самообслуживания 24″', category: 'kiosk', qty: 1, unitPrice: 180000, cost: 108000 }],
+    }))
+    // руками добавим строку с 0 ценой и большой скидкой для проверки
+    kp.sections[0].items.push({ name: 'Опция', category: 'kiosk_option', qty: 1, unitPrice: 0, discount: 40, total: 0 })
+    const w = sanityWarnings(kp, baseForm({ license_type: 'kiosk_pro' }))
+    expect(w.some(x => /фискального оборудования/.test(x))).toBe(true)
+    expect(w.some(x => /нулевой ценой/.test(x))).toBe(true)
+    expect(w.some(x => /Скидка 40%/.test(x))).toBe(true)
+  })
+
+  it('sanityWarnings: чистое КП без замечаний', () => {
+    const kp = calculateKP(baseForm({
+      license_type: 'kiosk_pro', devices: 1,
+      _kiosk_equip_lines: [
+        { name: 'Киоск', category: 'kiosk', qty: 1, unitPrice: 180000, cost: 108000 },
+        { name: 'Фискальный регистратор', category: 'fiscal', qty: 1, unitPrice: 38000, cost: 25000 },
+      ],
+    }))
+    expect(sanityWarnings(kp, baseForm({ license_type: 'kiosk_pro' }))).toEqual([])
   })
 })
