@@ -22,6 +22,11 @@ export interface ParsedRequest {
   payment_type: 'prepay100' | 'installment3'
   notes: string
   selected_kiosk_options: string[]  // IDs опций из каталога (ККТ, ФН, принтеры, сканеры и т.д.)
+  // ── Новая схема каталога (feature/kiosk-catalog-redesign) ──
+  // Kiosk PRO выбирается через семейство → комплектация → опции.
+  selected_family?: string | null   // нормализованный ключ семейства (catalog-schema)
+  complectation?: { processor?: string | null; scanner?: string | null; variant?: string | null }
+  selected_options?: string[]        // id опций (CatalogItem.id)
   // Дополнительные ИННО-лицензии поверх основной (2026-05-26).
   // Ключи из INNO_ADDON_LICENSES (catalog.ts). Например ['queue'] —
   // Электронная очередь добавится отдельной строкой в «Лицензии и подписки».
@@ -44,4 +49,11 @@ export interface ParsedRequest {
    *  использует их при сборке фискального пакета вместо хардкода
    *  (фикс 2026-05-26 — цены живут только в Google Sheets). */
   _fiscal_prices?: import('./catalog').FiscalPriceMap
+  /** Готовые строки комплекта Kiosk PRO (новая схема): собраны формой через
+   *  buildKioskEquipment(), калькулятор просто маппит их в LineItem. Если
+   *  заданы — старый путь (_kiosk_name/_kiosk_options_data) не используется. */
+  _kiosk_equip_lines?: import('./catalog-schema').EquipLine[]
+  /** Живые позиции планшетного комплекта из каталога (Планшеты/Кронштейны/
+   *  Периферия) — цена + обезличенное имя. Убирает дрейф хардкода catalog.ts. */
+  _tablet_kit?: { tabletName?: string; tabletPrice?: number }
 }

@@ -128,18 +128,23 @@ export function calculateKP(req: ParsedRequest): KPResult {
   if (req.devices > 0 && req.license_type === 'kiosk') {
     const equipItems: LineItem[] = []
 
-    // Планшет — выбранный менеджером или первый по умолчанию
+    // Планшет — выбранный менеджером или первый по умолчанию.
+    // Цена и обезличенное имя берутся из живого каталога (_tablet_kit,
+    // передаётся формой), а не из хардкода catalog.ts — иначе дрейф
+    // (напр. Redmi в таблице 33 000, в коде было зашито 31 000).
     const selectedTablet = req.selected_tablet_id
       ? tablets.find(t => t.id === req.selected_tablet_id) || tablets[0]
       : tablets[0]
     if (selectedTablet) {
+      const tabName = req._tablet_kit?.tabletName || selectedTablet.kpName || selectedTablet.name
+      const tabPrice = req._tablet_kit?.tabletPrice ?? selectedTablet.sellPrice
       equipItems.push({
-        name: selectedTablet.kpName || selectedTablet.name,
+        name: tabName,
         category: 'tablet',
         qty: req.devices,
-        unitPrice: selectedTablet.sellPrice,
+        unitPrice: tabPrice,
         discount: 0,
-        total: selectedTablet.sellPrice * req.devices,
+        total: tabPrice * req.devices,
       })
     }
 
@@ -218,6 +223,18 @@ export function calculateKP(req: ParsedRequest): KPResult {
   if (req.devices > 0 && req.license_type === 'kiosk_pro') {
     const equipItems: LineItem[] = []
 
+    if (req._kiosk_equip_lines && req._kiosk_equip_lines.length > 0) {
+      // ── Новая схема ── строки комплекта собраны формой (buildKioskEquipment):
+      // модель по комплектации + обязательные/выбранные опции + фискалка,
+      // имена уже обезличены. Калькулятор только маппит в LineItem.
+      for (const l of req._kiosk_equip_lines) {
+        equipItems.push({
+          name: l.name, category: l.category, qty: l.qty,
+          unitPrice: l.unitPrice, discount: 0, total: l.unitPrice * l.qty,
+        })
+      }
+    } else {
+    // ── Старый путь (fallback, пока в таблице нет вкладок новой схемы) ──
     // POS-терминал (готовый киоск)
     if (req._kiosk_name && req._kiosk_price) {
       equipItems.push({
@@ -280,6 +297,7 @@ export function calculateKP(req: ParsedRequest): KPResult {
         equipItems.push(...buildFiscalLineItems(fiscalCfg, req.devices, fiscalPrices))
       }
     }
+    }  // /else — конец старого пути Kiosk PRO
 
     if (equipItems.length > 0) {
       const subtotal = equipItems.reduce((sum, i) => sum + i.total, 0)

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, type Dispatch, type SetStateAction } from 'react'
 import { KPPreview } from '@/components/KPPreview'
 import { calculateKP, type KPResult } from '@/lib/calculator'
 import type { ParsedRequest } from '@/lib/prompt'
@@ -18,6 +18,13 @@ import {
   type SubscriptionPeriod,
 } from '@/lib/catalog'
 import { fetchAllCatalog, type DBProduct } from '@/lib/supabase'
+import {
+  buildCatalog, familyCards, familyModels, familyAxes, familyOptions,
+  defaultSelection, resolveModel, resolveChosenOptions, buildKioskEquipment,
+  fiscalLines, clientName,
+  type Catalog, type Selection, type CatalogItem,
+} from '@/lib/catalog-schema'
+import { FALLBACK_NOMENCLATURE, FALLBACK_FAMILIES } from '@/lib/catalog-fallback'
 
 type Step = 'form' | 'preview'
 
@@ -40,6 +47,10 @@ const defaultForm: ParsedRequest = {
   selected_kiosk_options: [],
   additional_licenses: [],
   fiscal_pack: false,  // авто-выставится при выборе license_type (см. update())
+  // Новая схема Kiosk PRO: семейство → комплектация → опции.
+  selected_family: null,
+  complectation: {},
+  selected_options: [],
 }
 
 // Маппинг старых категорий catalog.ts → новые
@@ -79,26 +90,26 @@ export default function Home() {
   const [form, setForm] = useState<ParsedRequest>({ ...defaultForm })
   const [kp, setKP] = useState<KPResult | null>(null)
   const [catalog, setCatalog] = useState<DBProduct[]>(fallbackCatalog)
+  // Каталог киосков по новой схеме (семейства + комплектация + обязательность).
+  // Инициализируется встроенным фолбэком; перекрывается живыми вкладками
+  // «Номенклатура (киоски)» / «Правила семейств», когда они появятся в таблице.
+  const [catalog2, setCatalog2] = useState<Catalog>(() => buildCatalog(FALLBACK_NOMENCLATURE, FALLBACK_FAMILIES))
   const [theme, setTheme] = useState<'light' | 'dark'>('light')
   const [dateStr, setDateStr] = useState('')
 
   // Загружаем каталог: сначала Google Sheets (все листы), потом Supabase как fallback
   useEffect(() => {
     fetchGoogleSheetProducts()
-      .then(products => {
-        if (products.length > 0) {
-          setCatalog(products)
-          return
-        }
-        throw new Error('Google Sheets пуст')
+      .then(({ products, catalog2: c2 }) => {
+        // Новая схема (вкладки «Номенклатура»/«Правила») перекрывает фолбэк.
+        if (c2) setCatalog2(c2)
+        if (products.length > 0) { setCatalog(products); return }
+        if (!c2) throw new Error('Google Sheets пуст')
       })
       .catch(() => {
-        // Fallback на Supabase
+        // Fallback на Supabase (для старой схемы). catalog2 остаётся встроенным.
         fetchAllCatalog().then(data => {
-          if (data.length > 0) {
-            setCatalog(data)
-          }
-          // иначе остаётся встроенный fallbackCatalog
+          if (data.length > 0) setCatalog(data)
         })
       })
   }, [])
@@ -129,6 +140,12 @@ export default function Home() {
     [catalog],
   )
 
+  // Живая цена планшета из каталога по имени (fallback — хардкод-цена).
+  // Конец дрейфу: в списке и в КП планшет считается по актуальной таблице.
+  const tabletLivePrice = (t: (typeof tablets)[number]): number =>
+    catalog.find(p => p.category === 'tablet' && p.name.toLowerCase() === t.name.toLowerCase())?.sell_price
+    ?? t.sellPrice
+
   const update = <K extends keyof ParsedRequest>(key: K, value: ParsedRequest[K]) => {
     setForm(prev => {
       const next = { ...prev, [key]: value }
@@ -154,6 +171,10 @@ export default function Home() {
       }
 
       if (key === 'license_type') {
+        // Смена типа лицензии сбрасывает выбор семейства/комплектации Kiosk PRO.
+        next.selected_family = null
+        next.complectation = {}
+        next.selected_options = []
         if (value === 'findir' || value === 'bonda_bi') {
           next.findir_tariff = value === 'findir' ? 'Старт' : null
         } else {
@@ -242,75 +263,35 @@ export default function Home() {
     // Живые цены фискалки из текущего каталога — передаём в calculator,
     // чтобы фискальные строки в КП имели актуальную сумму, не хардкод.
     enrichedForm._fiscal_prices = fiscalPrices
-    if (form.license_type === 'kiosk_pro' && form.selected_kiosk_id) {
-      const kiosk = catalog.find(p => p.id === form.selected_kiosk_id)
-      if (kiosk) {
-        enrichedForm._kiosk_name = kiosk.name
-        enrichedForm._kiosk_price = kiosk.sell_price
-        // BG-1..5: группа нужна calculator'у для лукапа фискального паттерна.
-        enrichedForm._kiosk_group = kiosk.group
+    // Kiosk PRO (новая схема): строки комплекта собираются из catalog2 по
+    // семейству + комплектации + опциям. buildKioskEquipment сам применяет
+    // обязательность, взаимоисключение опций, фискалку по паттерну и
+    // обезличивание имён. Хардкода и догадок нет.
+    if (form.license_type === 'kiosk_pro' && form.selected_family) {
+      enrichedForm._kiosk_equip_lines = buildKioskEquipment(
+        catalog2,
+        form.selected_family,
+        form.complectation || {},
+        new Set(form.selected_options || []),
+        form.fiscal_pack,
+        form.devices,
+      )
+    }
 
-        // Find mount if non-default
-        const kioskGroup = kiosk.group
-        if (kioskGroup && form.kiosk_type) {
-          const mountItems = catalog.filter(p =>
-            p.category === 'kiosk_mount' &&
-            p.group === kioskGroup
-          )
-
-          // Map mount type to find matching mount
-          const mountTypeMap: Record<string, string> = {
-            'desk': 'настольн',
-            'wall': 'настенн',
-            'floor': 'напольн',
-          }
-          const searchTerm = mountTypeMap[form.kiosk_type]
-
-          if (searchTerm) {
-            const selectedMount = mountItems.find(m =>
-              m.name.toLowerCase().includes(searchTerm.toLowerCase())
-            )
-
-            if (selectedMount && isNonDefaultMount(kiosk, form.kiosk_type)) {
-              enrichedForm._kiosk_mount_name = selectedMount.name
-              enrichedForm._kiosk_mount_price = selectedMount.sell_price
-            }
-          }
-        }
-      }
-
-      // Add selected kiosk options (ККТ, ФН, принтеры, сканеры и т.д.)
-      if (form.selected_kiosk_options.length > 0) {
-        enrichedForm._kiosk_options_data = form.selected_kiosk_options
-          .map(optId => {
-            const opt = catalog.find(p => p.id === optId)
-            return opt ? { name: opt.name, price: opt.sell_price } : null
-          })
-          .filter((o): o is { name: string; price: number } => o !== null)
+    // Планшетный Kiosk: живая цена планшета из каталога + обезличенное имя
+    // (конец дрейфу хардкода catalog.ts).
+    if (form.license_type === 'kiosk') {
+      const t = form.selected_tablet_id
+        ? tablets.find(x => x.id === form.selected_tablet_id) || tablets[0]
+        : tablets[0]
+      if (t) {
+        enrichedForm._tablet_kit = { tabletName: t.kpName || t.name, tabletPrice: tabletLivePrice(t) }
       }
     }
 
     const result = calculateKP(enrichedForm)
     setKP(result)
     setStep('preview')
-  }
-
-  // Helper to check if mount is non-default for a kiosk group
-  const isNonDefaultMount = (kioskItem: DBProduct, mountType: string): boolean => {
-    const group = kioskItem.group || ''
-    const name = kioskItem.name.toLowerCase()
-    const g = group.toLowerCase()
-
-    // Напольные киоски: «Киоск самообслуживания» (МС 24, МС 32)
-    if (name.includes('киоск самообслуживания') || g.includes('мс 24') || g.includes('мс 32') || g.includes('mc 24') || g.includes('mc 32')) {
-      return mountType !== 'floor'
-    }
-    // Настенные: L-240, L-320, Slim
-    if (g.includes('l-240') || g.includes('l-320') || g.includes('slim') || name.includes('настенн')) {
-      return mountType !== 'wall'
-    }
-    // Настольные: Sam4s Astra, Mini и т.д.
-    return mountType !== 'desk'
   }
 
   const handleBack = () => {
@@ -440,7 +421,7 @@ export default function Home() {
                         <option value="">Автоподбор (по умолчанию)</option>
                         {tablets.map(t => (
                           <option key={t.id} value={t.id}>
-                            {t.name} — {t.sellPrice.toLocaleString('ru-RU')} ₽ ({t.specs})
+                            {t.name} — {tabletLivePrice(t).toLocaleString('ru-RU')} ₽ ({t.specs})
                           </option>
                         ))}
                       </select>
@@ -465,202 +446,13 @@ export default function Home() {
                     </div>
                   )}
 
-                  {/* Выбор киоска — для Kiosk PRO (карточки) */}
+                  {/* Kiosk PRO — семейство → комплектация → опции (новая схема) */}
                   {form.license_type === 'kiosk_pro' && (
-                    <div>
-                      <label className="pc-flab">Модель киоска</label>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                        {catalog
-                          .filter(p => p.category === 'kiosk' && p.sell_price > 0)
-                          .map(k => (
-                            <button
-                              key={k.id}
-                              type="button"
-                              className="pc-kiosk"
-                              data-on={form.selected_kiosk_id === k.id}
-                              onClick={() => update('selected_kiosk_id', k.id)}
-                            >
-                              <div className="aspect-square flex items-center justify-center"
-                                style={{ background: 'var(--surface-2)' }}>
-                                {k.image_url ? (
-                                  <img src={k.image_url} alt={k.name} className="w-full h-full object-contain p-2" />
-                                ) : (
-                                  <svg className="w-10 h-10 text-[var(--text-3)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                                  </svg>
-                                )}
-                              </div>
-                              <div className="px-3 py-2.5 border-t" style={{ borderColor: 'var(--rule)' }}>
-                                <div className="text-[12.5px] leading-tight font-text text-[var(--text)]">{k.name}</div>
-                                <div className="mt-1.5 font-mono text-xs text-[var(--accent)]">
-                                  {k.sell_price.toLocaleString('ru-RU')} ₽
-                                </div>
-                              </div>
-                            </button>
-                          ))}
-                      </div>
-                    </div>
+                    <KioskProConfig catalog={catalog2} form={form} setForm={setForm} />
                   )}
 
-                  {/* Тип крепления — для Kiosk PRO (динамический) */}
-                  {form.license_type === 'kiosk_pro' && form.selected_kiosk_id && (
-                    <div>
-                      <label className="pc-flab">Тип крепления</label>
-                      {(() => {
-                        const kiosk = catalog.find(p => p.id === form.selected_kiosk_id)
-                        if (!kiosk || !kiosk.group) {
-                          return <p className="text-xs text-[var(--text-3)]">Для этого киоска опции крепления не предусмотрены</p>
-                        }
 
-                        const mountOptions = catalog.filter(p =>
-                          p.category === 'kiosk_mount' &&
-                          p.group === kiosk.group
-                        )
-
-                        // Определяем дефолтный тип крепления по группе и названию
-                        const getDefault = (): 'desk' | 'wall' | 'floor' => {
-                          if (!kiosk.group) return 'desk'
-                          const g = kiosk.group.toLowerCase()
-                          const n = kiosk.name.toLowerCase()
-                          // Настенные: L-240, L-320, Slim, «настенная» в названии
-                          if (g.includes('l-240') || g.includes('l-320') || g.includes('slim') || n.includes('настенн')) return 'wall'
-                          // Напольные: «киоск самообслуживания» (МС 24, МС 32 и т.д.)
-                          if (n.includes('киоск самообслуживания') || g.includes('мс 24') || g.includes('мс 32') || g.includes('mc 24') || g.includes('mc 32')) return 'floor'
-                          return 'desk'
-                        }
-                        const defaultMount = getDefault()
-
-                        // Доступные опции: дефолтная + те, что есть в каталоге
-                        const hasDesk = defaultMount === 'desk' || mountOptions.some(m => m.name.toLowerCase().includes('настольн'))
-                        const hasWall = defaultMount === 'wall' || mountOptions.some(m => m.name.toLowerCase().includes('настенн'))
-                        const hasFloor = mountOptions.some(m => m.name.toLowerCase().includes('напольн'))
-
-                        // Если только дефолтный тип и нет альтернатив — не показываем селектор
-                        const totalOptions = [hasDesk, hasWall, hasFloor].filter(Boolean).length
-                        if (totalOptions <= 1) {
-                          if (!form.kiosk_type || form.kiosk_type !== defaultMount) {
-                            update('kiosk_type', defaultMount)
-                          }
-                          return <p className="text-xs text-[var(--text-3)]">Крепление: {defaultMount === 'desk' ? 'настольное' : defaultMount === 'wall' ? 'настенное' : 'напольное'} (входит в комплект)</p>
-                        }
-
-                        if (!form.kiosk_type) {
-                          update('kiosk_type', defaultMount)
-                        }
-
-                        return (
-                          <div className="grid grid-cols-3 gap-3">
-                            {hasDesk && (
-                              <RadioCard active={form.kiosk_type === 'desk'} onClick={() => update('kiosk_type', 'desk')}
-                                title="Настольный" desc={defaultMount === 'desk' ? 'в комплекте' : ''} />
-                            )}
-                            {hasWall && (
-                              <RadioCard active={form.kiosk_type === 'wall'} onClick={() => update('kiosk_type', 'wall')}
-                                title="Настенный" desc={defaultMount === 'wall' ? 'в комплекте' : ''} />
-                            )}
-                            {hasFloor && (
-                              <RadioCard active={form.kiosk_type === 'floor'} onClick={() => update('kiosk_type', 'floor')}
-                                title="Напольный" desc="" />
-                            )}
-                          </div>
-                        )
-                      })()}
-                    </div>
-                  )}
-
-                  {/* Дополнительные опции — для Kiosk PRO (динамические из каталога) */}
-                  {form.license_type === 'kiosk_pro' && form.selected_kiosk_id && (() => {
-                    const kiosk = catalog.find(p => p.id === form.selected_kiosk_id)
-                    if (!kiosk) return null
-
-                    // Опции из группы выбранного киоска
-                    const groupOptions = kiosk.group
-                      ? catalog.filter(p => p.category === 'kiosk_option' && p.group === kiosk.group)
-                      : []
-
-                    // Универсальные опции (без группы или с группой, не совпадающей ни с одним киоском)
-                    const kioskGroups = new Set(
-                      catalog.filter(p => p.category === 'kiosk' && p.group).map(p => p.group)
-                    )
-                    const universalOptions = catalog.filter(p =>
-                      p.category === 'kiosk_option' &&
-                      (!p.group || !kioskGroups.has(p.group))
-                    )
-
-                    // Фильтр фискальных позиций (BG-1..5, фикс 2026-05-26).
-                    // Атол 42 ФА, POScenter-02Ф, ФН 15, принтеры чеков теперь
-                    // подбираются автоматически секцией «Фискальный пакет».
-                    // Прятать их из чекбоксов «Дополнительно», чтобы менеджер
-                    // не плодил дубли в КП. Сканер ШК — оставляем, он не
-                    // фискальный, опционально может быть нужен.
-                    const isFiscalDevice = (name: string): boolean => {
-                      const n = name.toLowerCase()
-                      return (
-                        n.includes('атол 42') ||
-                        n.includes('казначей') ||
-                        n.includes('poscenter-02') ||
-                        n.includes('poscenter 02') ||
-                        n.includes('фискальн') ||
-                        n.includes('фн 15') ||
-                        n.includes('принтер чек')
-                      )
-                    }
-
-                    // Dedup опций по name+price (если в Sheets продукт повторён
-                    // в разных группах под каждую модель киоска, не плодим
-                    // одинаковые строки в чекбоксах).
-                    const seen = new Set<string>()
-                    const allOptions = [...groupOptions, ...universalOptions]
-                      .filter(opt => !isFiscalDevice(opt.name))
-                      .filter(opt => {
-                        const key = `${opt.name}|${opt.sell_price}`
-                        if (seen.has(key)) return false
-                        seen.add(key)
-                        return true
-                      })
-                    if (allOptions.length === 0) return null
-
-                    const toggleOption = (optId: string) => {
-                      setForm(prev => {
-                        const has = prev.selected_kiosk_options.includes(optId)
-                        return {
-                          ...prev,
-                          selected_kiosk_options: has
-                            ? prev.selected_kiosk_options.filter(id => id !== optId)
-                            : [...prev.selected_kiosk_options, optId],
-                        }
-                      })
-                    }
-
-                    return (
-                      <div>
-                        <label className="pc-flab">Дополнительно</label>
-                        <div className="divide-y" style={{ borderColor: 'var(--rule)' }}>
-                          {allOptions.map(opt => {
-                            const isChecked = form.selected_kiosk_options.includes(opt.id)
-                            return (
-                              <label
-                                key={opt.id}
-                                className="pc-opt"
-                                data-on={isChecked}
-                                onClick={() => toggleOption(opt.id)}
-                              >
-                                <span className="pc-box">{isChecked && <Check />}</span>
-                                <span className="flex-1 min-w-0 flex items-baseline justify-between gap-3">
-                                  <span className="text-sm text-[var(--text)]">{opt.name}</span>
-                                  {opt.sell_price > 0 && (
-                                    <span className="font-mono text-xs text-[var(--accent)] whitespace-nowrap">
-                                      {opt.sell_price.toLocaleString('ru-RU')} ₽
-                                    </span>
-                                  )}
-                                </span>
-                              </label>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    )
-                  })()}
+                  {/* Kiosk PRO: комплектация, опции по обязательности и фискалка — в KioskProConfig выше */}
 
                   {/* Подсказки */}
                   {form.license_type === 'kiosk' && (
@@ -682,14 +474,11 @@ export default function Home() {
               </Section>
             )}
 
-            {/* Фискальный пакет (BG-1..5) — для ИННО оборудования (Kiosk / Kiosk PRO).
-                Состав определяется автоматически по модели киоска. Дефолт ВКЛ для
-                Kiosk PRO, ВЫКЛ для планшетного Kiosk. */}
-            {isInno && (form.license_type === 'kiosk' ||
-                        (form.license_type === 'kiosk_pro' && form.selected_kiosk_id)) && (() => {
-              const fiscalCfg = form.license_type === 'kiosk_pro'
-                ? getFiscalConfigByGroup(catalog.find(p => p.id === form.selected_kiosk_id)?.group)
-                : TABLET_KIOSK_FISCAL_CONFIG
+            {/* Фискальный пакет — только для планшетного Kiosk (внешний ФР рядом).
+                Для Kiosk PRO фискалка ведётся внутри KioskProConfig (по паттерну
+                семейства). Дефолт ВЫКЛ (чаще у клиента своя iiko-касса). */}
+            {isInno && form.license_type === 'kiosk' && (() => {
+              const fiscalCfg = TABLET_KIOSK_FISCAL_CONFIG
               if (!fiscalCfg) return null
               const items = getFiscalPackPreview(fiscalCfg, fiscalPrices)
               if (items.length === 0) return null
@@ -873,13 +662,13 @@ export default function Home() {
             {/* Подвал — синхронизация + кнопка */}
             <div className="pc-rise" style={{ borderTop: '1px solid var(--rule)', padding: '28px 32px' }}>
               <div className="mb-5">
-                <GoogleSyncButton onSync={(data) => { setCatalog(data) }} />
+                <GoogleSyncButton onSync={(data, c2) => { if (data.length) setCatalog(data); if (c2) setCatalog2(c2) }} />
               </div>
               <div className="flex items-center gap-5">
                 <button
                   type="button"
                   onClick={handleGenerate}
-                  disabled={!form.client_name.trim()}
+                  disabled={!form.client_name.trim() || (form.license_type === 'kiosk_pro' && !form.selected_family)}
                   className="pc-cta"
                 >
                   <span className="pc-cta-txt">Рассчитать КП</span>
@@ -959,9 +748,14 @@ const GOOGLE_SHEET_ID = '1GGIOWoQmk7yLZjWSeY0wpFiKgrrYZ62TV2numdL7qXc'
 // Загружаем все листы из Google Sheet
 // Сначала получаем HTML чтобы узнать gid и названия листов,
 // потом скачиваем каждый лист как CSV
-async function fetchGoogleSheetProducts(): Promise<DBProduct[]> {
+async function fetchGoogleSheetProducts(): Promise<{ products: DBProduct[]; catalog2: Catalog | null }> {
   const products: DBProduct[] = []
+  const nomRows: Record<string, unknown>[] = []   // вкладка «Номенклатура (киоски)»
+  const famRows: Record<string, unknown>[] = []   // вкладка «Правила семейств»
   let idx = 0
+
+  const isNomSheet = (n: string) => n.includes('номенклатура')
+  const isFamSheet = (n: string) => n.includes('правил') || n.includes('семейств')
 
   // Способ 1: пробуем загрузить как XLSX (содержит все листы сразу)
   try {
@@ -974,13 +768,17 @@ async function fetchGoogleSheetProducts(): Promise<DBProduct[]> {
       for (const sheetName of wb.SheetNames) {
         const ws = wb.Sheets[sheetName]
         const rows: Record<string, unknown>[] = XLSX.utils.sheet_to_json(ws, { defval: '' })
-        const sheetCategory = sheetName.trim().toLowerCase()
+        const sheetLower = sheetName.trim().toLowerCase()
+        // Новая схема: вкладки собираются отдельно, в catalog2.
+        if (isNomSheet(sheetLower)) { nomRows.push(...rows); continue }
+        if (isFamSheet(sheetLower)) { famRows.push(...rows); continue }
         for (const row of rows) {
-          const p = parseRowToProduct(row, idx, sheetCategory)
+          const p = parseRowToProduct(row, idx, sheetLower)
           if (p) { products.push(p); idx++ }
         }
       }
-      if (products.length > 0) return products
+      const catalog2 = nomRows.length > 0 ? buildCatalog(nomRows, famRows) : null
+      if (products.length > 0 || catalog2) return { products, catalog2 }
     }
   } catch {
     // Fallback на CSV
@@ -1005,7 +803,7 @@ async function fetchGoogleSheetProducts(): Promise<DBProduct[]> {
     }
   }
 
-  return products
+  return { products, catalog2: null }
 }
 
 function parseRowToProduct(row: Record<string, unknown>, index: number, sheetCategory?: string): DBProduct | null {
@@ -1119,7 +917,234 @@ function parseCSV(csvText: string): Record<string, unknown>[] {
   return rows
 }
 
-function GoogleSyncButton({ onSync }: { onSync: (data: DBProduct[]) => void }) {
+// ========== Kiosk PRO: семейство → комплектация → опции (новая схема) ==========
+
+function KioskProConfig({
+  catalog, form, setForm,
+}: {
+  catalog: Catalog
+  form: ParsedRequest
+  setForm: Dispatch<SetStateAction<ParsedRequest>>
+}) {
+  const cards = familyCards(catalog)
+  const familyKey = form.selected_family || null
+  const rule = familyKey ? catalog.familyByKey.get(familyKey) : undefined
+  const models = familyKey ? familyModels(catalog, familyKey) : []
+  const axes = familyAxes(models)
+  const opts = familyKey
+    ? familyOptions(catalog, familyKey)
+    : { included: [], mandatory: [], optional: [] }
+  const sel: Selection = form.complectation || {}
+  const selectedIds = new Set(form.selected_options || [])
+
+  const money = (n: number) => n.toLocaleString('ru-RU')
+
+  const selectFamily = (key: string) => {
+    setForm(prev => {
+      const ms = familyModels(catalog, key)
+      const r = catalog.familyByKey.get(key)
+      return {
+        ...prev,
+        selected_family: key,
+        complectation: defaultSelection(ms, r),
+        selected_options: [],
+        fiscal_pack: (r?.fiscalPattern ?? 'нет') !== 'нет',  // фискалка нужна — вкл по умолчанию
+      }
+    })
+  }
+  const setAxis = (axis: keyof Selection, val: string) =>
+    setForm(prev => ({ ...prev, complectation: { ...(prev.complectation || {}), [axis]: val } }))
+
+  // Взаимоисключающие опции (radio-группа) + одиночные чекбоксы.
+  const groupItems = [...opts.mandatory, ...opts.optional]
+  const exclusiveKeys = Array.from(new Set(groupItems.filter(o => o.exclusiveGroup).map(o => o.exclusiveGroup!)))
+  const singlesOptional = opts.optional.filter(o => !o.exclusiveGroup)
+  const singlesMandatory = opts.mandatory.filter(o => !o.exclusiveGroup)
+
+  const activeInGroup = (gk: string): CatalogItem => {
+    const members = groupItems.filter(o => o.exclusiveGroup === gk)
+    return members.find(o => selectedIds.has(o.id))
+      ?? members.find(o => o.obligation === 'обязательная')
+      ?? members[0]
+  }
+  const pickInGroup = (gk: string, id: string) =>
+    setForm(prev => {
+      const memberIds = groupItems.filter(o => o.exclusiveGroup === gk).map(o => o.id)
+      const without = (prev.selected_options || []).filter(x => !memberIds.includes(x))
+      return { ...prev, selected_options: [...without, id] }
+    })
+  const toggleSingle = (id: string) =>
+    setForm(prev => {
+      const cur = prev.selected_options || []
+      return { ...prev, selected_options: cur.includes(id) ? cur.filter(x => x !== id) : [...cur, id] }
+    })
+
+  // Живой итог за устройство.
+  const model = resolveModel(models, sel)
+  const chosen = resolveChosenOptions(opts, selectedIds)
+  const fiscal = form.fiscal_pack ? fiscalLines(rule, catalog) : []
+  const unitTotal = (model?.sellPrice ?? 0)
+    + chosen.reduce((s, o) => s + o.sellPrice, 0)
+    + fiscal.reduce((s, f) => s + f.price, 0)
+
+  const AxisSeg = ({ axis, values }: { axis: keyof Selection; values: string[] }) =>
+    values.length > 1 ? (
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        {values.map(v => (
+          <button key={v} type="button" className="pc-period" data-on={sel[axis] === v}
+            onClick={() => setAxis(axis, v)}>{v}</button>
+        ))}
+      </div>
+    ) : null
+
+  return (
+    <div className="space-y-5">
+      {/* Карточки семейств */}
+      <div>
+        <label className="pc-flab">Модель киоска</label>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {cards.map(c => (
+            <button key={c.rule.family} type="button" className="pc-kiosk" data-on={familyKey === c.rule.family}
+              onClick={() => selectFamily(c.rule.family)}>
+              <div className="aspect-square flex items-center justify-center" style={{ background: 'var(--surface-2)' }}>
+                <svg className="w-10 h-10 text-[var(--text-3)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+              </div>
+              <div className="px-3 py-2.5 border-t" style={{ borderColor: 'var(--rule)' }}>
+                <div className="text-[12.5px] leading-tight font-text text-[var(--text)]">{c.rule.familyRaw}</div>
+                <div className="mt-0.5 text-[10.5px] text-[var(--text-3)]">{c.rule.diagonal} · {c.rule.formFactor}</div>
+                <div className="mt-1.5 font-mono text-xs text-[var(--accent)]">от {money(c.fromPrice)} ₽</div>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {familyKey && (
+        <>
+          {/* Комплектация */}
+          {(axes.processor.length > 1 || axes.scanner.length > 1 || axes.variant.length > 1) && (
+            <div className="space-y-3">
+              {axes.processor.length > 1 && (<div><label className="pc-flab">Процессор</label><AxisSeg axis="processor" values={axes.processor} /></div>)}
+              {axes.scanner.length > 1 && (<div><label className="pc-flab">Сканер</label><AxisSeg axis="scanner" values={axes.scanner} /></div>)}
+              {axes.variant.length > 1 && (<div><label className="pc-flab">Исполнение</label><AxisSeg axis="variant" values={axes.variant} /></div>)}
+            </div>
+          )}
+
+          {/* Опции по обязательности */}
+          {(opts.included.length > 0 || singlesMandatory.length > 0 || exclusiveKeys.length > 0 || singlesOptional.length > 0) && (
+            <div className="space-y-3">
+              {/* В комплекте */}
+              {opts.included.map(o => (
+                <div key={o.id} className="pc-opt" data-on style={{ opacity: 0.75, cursor: 'default' }}>
+                  <span className="pc-box" style={{ background: 'var(--accent)' }}><Check /></span>
+                  <span className="flex-1 flex items-baseline justify-between gap-3">
+                    <span className="text-sm text-[var(--text)]">{o.name}</span>
+                    <span className="font-mono text-[10px] uppercase tracking-wider text-[var(--text-3)]">в комплекте</span>
+                  </span>
+                </div>
+              ))}
+              {/* Обязательные одиночные */}
+              {singlesMandatory.map(o => (
+                <div key={o.id} className="pc-opt" data-on style={{ cursor: 'default' }}>
+                  <span className="pc-box" style={{ background: 'var(--accent)' }}><Check /></span>
+                  <span className="flex-1 flex items-baseline justify-between gap-3">
+                    <span className="text-sm text-[var(--text)]">{o.name} <span className="text-[10px] uppercase tracking-wider text-[var(--accent)]">обязательно</span></span>
+                    {o.sellPrice > 0 && <span className="font-mono text-xs text-[var(--accent)] whitespace-nowrap">{money(o.sellPrice)} ₽</span>}
+                  </span>
+                </div>
+              ))}
+              {/* Взаимоисключающие группы (radio) */}
+              {exclusiveKeys.map(gk => {
+                const members = groupItems.filter(o => o.exclusiveGroup === gk)
+                const active = activeInGroup(gk)
+                return (
+                  <div key={gk}>
+                    <label className="pc-flab" style={{ textTransform: 'capitalize' }}>{gk}</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {members.map(m => (
+                        <button key={m.id} type="button" className="pc-period" data-on={active?.id === m.id}
+                          onClick={() => pickInGroup(gk, m.id)}>
+                          <span>{m.name.replace(/чеков /i, '')}</span>
+                          <span className="block font-mono text-[11px] text-[var(--text-3)]">{money(m.sellPrice)} ₽</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+              {/* Дополнительные (чекбоксы) */}
+              {singlesOptional.length > 0 && (
+                <div>
+                  <label className="pc-flab">Дополнительно</label>
+                  <div className="divide-y" style={{ borderColor: 'var(--rule)' }}>
+                    {singlesOptional.map(o => {
+                      const on = selectedIds.has(o.id)
+                      return (
+                        <label key={o.id} className="pc-opt" data-on={on} onClick={() => toggleSingle(o.id)}>
+                          <span className="pc-box">{on && <Check />}</span>
+                          <span className="flex-1 min-w-0 flex items-baseline justify-between gap-3">
+                            <span className="text-sm text-[var(--text)]">{o.name}</span>
+                            {o.sellPrice > 0 && <span className="font-mono text-xs text-[var(--accent)] whitespace-nowrap">{money(o.sellPrice)} ₽</span>}
+                          </span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Фискальный пакет (по паттерну семейства) */}
+          {rule && rule.fiscalPattern !== 'нет' && fiscal.length >= 0 && (() => {
+            const flines = fiscalLines(rule, catalog)
+            if (flines.length === 0) return null
+            const fsum = flines.reduce((s, f) => s + f.price, 0)
+            return (
+              <div>
+                <label className="pc-flab">Фискализация</label>
+                <label className="pc-opt" data-on={form.fiscal_pack}
+                  onClick={() => setForm(prev => ({ ...prev, fiscal_pack: !prev.fiscal_pack }))}>
+                  <span className="pc-box">{form.fiscal_pack && <Check />}</span>
+                  <span className="flex-1 min-w-0">
+                    <span className="text-sm text-[var(--text)]">Фискальный пакет</span>
+                    <div className="mt-2 space-y-1 text-xs text-[var(--text-2)]">
+                      <div className="font-mono uppercase tracking-wider text-[10px] text-[var(--text-3)]">
+                        {rule.fiscalPattern === 'внутренний' ? 'внутренняя (внутрь киоска)'
+                          : rule.fiscalPattern === 'встроенный' ? 'встроенная (в составе киоска)'
+                          : 'внешняя (рядом с киоском)'}
+                      </div>
+                      {flines.map((f, i) => (
+                        <div key={i} className="flex justify-between items-baseline gap-3">
+                          <span>{f.name}</span>
+                          <span className="font-mono text-[var(--accent)] whitespace-nowrap">{money(f.price)} ₽</span>
+                        </div>
+                      ))}
+                      <div className="flex justify-between items-baseline gap-3 pt-2 border-t border-[var(--rule)]">
+                        <span>За 1 устройство</span>
+                        <span className="font-mono text-[var(--accent)] whitespace-nowrap">{money(fsum)} ₽</span>
+                      </div>
+                    </div>
+                  </span>
+                </label>
+              </div>
+            )
+          })()}
+
+          {/* Живой итог за устройство */}
+          <div className="flex items-baseline justify-between pt-3" style={{ borderTop: '1px solid var(--rule)' }}>
+            <span className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-3)]">Итого за устройство</span>
+            <span className="font-mono text-lg font-semibold text-[var(--text)]">{money(unitTotal)} ₽</span>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+function GoogleSyncButton({ onSync }: { onSync: (data: DBProduct[], catalog2: Catalog | null) => void }) {
   const [status, setStatus] = useState<'idle' | 'syncing' | 'done' | 'error'>('idle')
   const [count, setCount] = useState(0)
   const [errorMsg, setErrorMsg] = useState('')
@@ -1128,15 +1153,15 @@ function GoogleSyncButton({ onSync }: { onSync: (data: DBProduct[]) => void }) {
     setStatus('syncing')
     setErrorMsg('')
     try {
-      const products = await fetchGoogleSheetProducts()
-      if (products.length === 0) {
+      const { products, catalog2 } = await fetchGoogleSheetProducts()
+      if (products.length === 0 && !catalog2) {
         setStatus('error')
         setErrorMsg('Таблица пуста или нет доступа по ссылке')
         return
       }
       setCount(products.length)
       setStatus('done')
-      onSync(products)
+      onSync(products, catalog2)
     } catch (err) {
       setStatus('error')
       setErrorMsg(err instanceof Error ? err.message : 'Ошибка синхронизации')

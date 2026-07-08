@@ -900,3 +900,66 @@ describe('calculateKP — все позиции оборудования × devi
     expect(equip.subtotal).toBe(88200)
   })
 })
+
+// ─────────────────────────────────────────────────────────────────────────
+// Новая схема (feature/kiosk-catalog-redesign)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('Kiosk PRO — новая схема (_kiosk_equip_lines)', () => {
+  it('строки комплекта из формы маппятся в секцию Оборудование, без брендов', () => {
+    const kp = calculateKP(baseForm({
+      license_type: 'kiosk_pro', devices: 1,
+      _kiosk_equip_lines: [
+        { name: 'Киоск самообслуживания 24″ (напольный)', category: 'kiosk', qty: 1, unitPrice: 180768 },
+        { name: 'Принтер чеков 80мм', category: 'kiosk_option', qty: 1, unitPrice: 20026 },
+        { name: 'Фискальный регистратор', category: 'fiscal', qty: 1, unitPrice: 33230 },
+        { name: 'Фискальный накопитель ФН', category: 'fiscal', qty: 1, unitPrice: 20832 },
+      ],
+    }))
+    const equip = findSection(kp, 'Оборудование')!
+    expect(equip.items.map(i => i.name)).toEqual([
+      'Киоск самообслуживания 24″ (напольный)', 'Принтер чеков 80мм',
+      'Фискальный регистратор', 'Фискальный накопитель ФН',
+    ])
+    expect(equip.subtotal).toBe(254856)
+    expect(equip.items.every(i => !/атол|мс 24|poscenter|sam4s/i.test(i.name))).toBe(true)
+  })
+
+  it('qty масштабируется по строкам комплекта', () => {
+    const kp = calculateKP(baseForm({
+      license_type: 'kiosk_pro', devices: 2,
+      _kiosk_equip_lines: [{ name: 'Киоск', category: 'kiosk', qty: 2, unitPrice: 180768 }],
+    }))
+    const item = findSection(kp, 'Оборудование')!.items[0]
+    expect(item.qty).toBe(2)
+    expect(item.total).toBe(361536)
+  })
+
+  it('без _kiosk_equip_lines — старый путь (fallback) не ломается', () => {
+    const kp = calculateKP(baseForm({
+      license_type: 'kiosk_pro', devices: 1,
+      _kiosk_name: 'POScenter Atlas 15"', _kiosk_price: 39400,
+    }))
+    const item = findSection(kp, 'Оборудование')!.items[0]
+    expect(item.name).toBe('POScenter Atlas 15"')
+    expect(item.unitPrice).toBe(39400)
+  })
+})
+
+describe('Планшетный Kiosk — живая цена планшета (_tablet_kit)', () => {
+  it('_tablet_kit перекрывает хардкод-цену (конец дрейфу Redmi 33k/31k)', () => {
+    const kp = calculateKP(baseForm({
+      license_type: 'kiosk', devices: 1,
+      _tablet_kit: { tabletName: "Планшет Android 12.1'', 8/128Гб", tabletPrice: 33000 },
+    }))
+    const tablet = findSection(kp, 'Оборудование')!.items.find(i => i.category === 'tablet')!
+    expect(tablet.unitPrice).toBe(33000)
+    expect(tablet.name).toContain('Планшет Android')
+  })
+
+  it('без _tablet_kit — планшет из хардкода (backward-compat)', () => {
+    const kp = calculateKP(baseForm({ license_type: 'kiosk', devices: 1 }))
+    const tablet = findSection(kp, 'Оборудование')!.items.find(i => i.category === 'tablet')!
+    expect(tablet.unitPrice).toBeGreaterThan(0)
+  })
+})
