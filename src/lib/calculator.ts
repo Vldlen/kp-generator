@@ -168,18 +168,23 @@ export function calculateKP(req: ParsedRequest): KPResult {
       if (pinpad) equipItems.push({ name: pinpad.kpName || pinpad.name, category: 'peripheral', qty: req.devices, unitPrice: pinpad.sellPrice, discount: 0, total: pinpad.sellPrice * req.devices })
     }
 
-    // Периферия (дефолт) — все позиции из catalog.peripherals, × devices.
-    // С Phase 5 dynamic row expansion шаблон .pptx умеет принимать до 11
-    // позиций в «Оборудовании».
-    for (const p of peripherals) {
-      equipItems.push({
-        name: p.kpName || p.name,
-        category: 'peripheral',
-        qty: req.devices,
-        unitPrice: p.sellPrice,
-        discount: 0,
-        total: p.sellPrice * req.devices,
-      })
+    // Периферия: живые строки из формы (_periph_lines, лист «Периферия») или
+    // хардкод-fallback (catalog.peripherals). Всё × devices. С Phase 5 dynamic
+    // row expansion шаблон .pptx принимает до 11 позиций в «Оборудовании».
+    if (req._periph_lines && req._periph_lines.length > 0) {
+      for (const l of req._periph_lines) {
+        equipItems.push({
+          name: l.name, category: l.category, qty: l.qty,
+          unitPrice: l.unitPrice, discount: 0, total: l.unitPrice * l.qty,
+        })
+      }
+    } else {
+      for (const p of peripherals) {
+        equipItems.push({
+          name: p.kpName || p.name, category: 'peripheral', qty: req.devices,
+          unitPrice: p.sellPrice, discount: 0, total: p.sellPrice * req.devices,
+        })
+      }
     }
 
     // Фискальный пакет (BG-1..5, 2026-05-26). Для планшетного Kiosk — паттерн B

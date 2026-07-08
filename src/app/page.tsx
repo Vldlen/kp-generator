@@ -144,11 +144,16 @@ export default function Home() {
     [catalog],
   )
 
-  // Живая цена планшета из каталога по имени (fallback — хардкод-цена).
-  // Конец дрейфу: в списке и в КП планшет считается по актуальной таблице.
-  const tabletLivePrice = (t: (typeof tablets)[number]): number =>
-    catalog.find(p => p.category === 'tablet' && p.name.toLowerCase() === t.name.toLowerCase())?.sell_price
-    ?? t.sellPrice
+  // Планшеты — из живого каталога (лист «Планшеты»). Каталог по умолчанию =
+  // встроенный fallback (там тоже есть планшеты), так что список не пустой.
+  const tabletList = useMemo(
+    () => catalog.filter(p => p.category === 'tablet' && p.sell_price > 0),
+    [catalog],
+  )
+  // Обезличенное имя планшета для КП: «Имя для КП» из таблицы (kp_name) →
+  // карта хардкода по имени (для листов без колонки) → generic. Без бренда.
+  const tabletKpName = (name: string, kpName?: string | null): string =>
+    kpName || tablets.find(t => t.name.toLowerCase() === name.toLowerCase())?.kpName || 'Планшет Android'
 
   const update = <K extends keyof ParsedRequest>(key: K, value: ParsedRequest[K]) => {
     setForm(prev => {
@@ -282,15 +287,21 @@ export default function Home() {
       )
     }
 
-    // Планшетный Kiosk: живая цена планшета из каталога + обезличенное имя
-    // (конец дрейфу хардкода catalog.ts).
+    // Планшетный Kiosk: планшет из живого каталога (обезличенное имя + цена).
     if (form.license_type === 'kiosk') {
       const t = form.selected_tablet_id
-        ? tablets.find(x => x.id === form.selected_tablet_id) || tablets[0]
-        : tablets[0]
+        ? tabletList.find(x => x.id === form.selected_tablet_id) || tabletList[0]
+        : tabletList[0]
       if (t) {
-        enrichedForm._tablet_kit = { tabletName: t.kpName || t.name, tabletPrice: tabletLivePrice(t) }
+        enrichedForm._tablet_kit = { tabletName: tabletKpName(t.name, t.kp_name), tabletPrice: t.sell_price }
       }
+
+      // Периферия из каталога (лист «Периферия»), × devices. Если каталог без
+      // периферии — калькулятор возьмёт хардкод (fallback).
+      const periphLines = catalog
+        .filter(p => p.category === 'peripheral' && p.sell_price > 0)
+        .map(p => ({ name: p.kp_name || p.name, category: 'peripheral', qty: form.devices, unitPrice: p.sell_price }))
+      if (periphLines.length > 0) enrichedForm._periph_lines = periphLines
 
       // Крепление из каталога «Кронштейны»: выбранный кронштейн (или дефолт —
       // настольный) + рамка-держатель (если не в комплекте) + крепление
@@ -443,16 +454,17 @@ export default function Home() {
                         }}
                       >
                         <option value="">Автоподбор (по умолчанию)</option>
-                        {tablets.map(t => (
+                        {tabletList.map(t => (
                           <option key={t.id} value={t.id}>
-                            {t.name} — {tabletLivePrice(t).toLocaleString('ru-RU')} ₽ ({t.specs})
+                            {t.name} — {t.sell_price.toLocaleString('ru-RU')} ₽
                           </option>
                         ))}
                       </select>
                       <p className="mt-2 text-xs text-[var(--text-3)]">
-                        В КП попадёт обезличенное название: «{
-                          (tablets.find(t => t.id === form.selected_tablet_id) || tablets[0])?.kpName || 'Планшет Android'
-                        }»
+                        В КП попадёт обезличенное название: «{(() => {
+                          const t = tabletList.find(x => x.id === form.selected_tablet_id) || tabletList[0]
+                          return t ? tabletKpName(t.name, t.kp_name) : 'Планшет Android'
+                        })()}»
                       </p>
                     </div>
                   )}
