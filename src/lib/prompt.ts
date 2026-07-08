@@ -61,4 +61,7 @@ export interface ParsedRequest {
    *  если не в комплекте + крепление пинпада) — собраны формой из живого
    *  каталога «Кронштейны». Заменяют хардкодный mountByType + адаптер + пинпад. */
   _mount_lines?: import('./catalog-schema').EquipLine[]
+  /** Периферия планшетного Kiosk из живого каталога (лист «Периферия»).
+   *  Заменяет хардкодный peripherals из catalog.ts. */
+  _periph_lines?: import('./catalog-schema').EquipLine[]
 }
