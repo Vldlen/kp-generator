@@ -23,6 +23,7 @@ import {
   type LineItem,
 } from '../calculator'
 import type { ParsedRequest } from '../prompt'
+import { mountRole, mountFrameIncluded } from '../catalog'
 
 // ─────────────────────────────────────────────────────────────────────────
 // Хелперы
@@ -961,5 +962,47 @@ describe('Планшетный Kiosk — живая цена планшета (_
     const kp = calculateKP(baseForm({ license_type: 'kiosk', devices: 1 }))
     const tablet = findSection(kp, 'Оборудование')!.items.find(i => i.category === 'tablet')!
     expect(tablet.unitPrice).toBeGreaterThan(0)
+  })
+})
+
+describe('Кронштейны — роль и держатель', () => {
+  it('mountRole: из «Тип» (приоритет) и из названия', () => {
+    expect(mountRole('Кронштейн настенный неподвижный')).toBe('настенный')
+    expect(mountRole('Кронштейн настольный')).toBe('настольный')
+    expect(mountRole('Рамка настольная на столбике')).toBe('стойка')
+    expect(mountRole('Комплекс креплений')).toBe('стойка')
+    expect(mountRole('Рамка для планшета')).toBe('рамка')
+    expect(mountRole('Крепление для эквара на кронштейн')).toBe('пинпад')
+    expect(mountRole('что угодно', 'настенный')).toBe('настенный')  // «Тип» важнее
+  })
+  it('mountFrameIncluded: столбик — да, флаг — да, остальное — нет', () => {
+    expect(mountFrameIncluded('Рамка настольная на столбике')).toBe(true)
+    expect(mountFrameIncluded('Кронштейн настенный неподвижный')).toBe(false)
+    expect(mountFrameIncluded('Комплекс креплений', null, false)).toBe(false)
+    expect(mountFrameIncluded('любое имя', null, true)).toBe(true)
+  })
+})
+
+describe('Планшетный Kiosk — крепление из _mount_lines', () => {
+  it('строки крепления из формы заменяют хардкодный кронштейн', () => {
+    const kp = calculateKP(baseForm({
+      license_type: 'kiosk', devices: 1,
+      _mount_lines: [
+        { name: 'Кронштейн настенный поворотный', category: 'mount', qty: 1, unitPrice: 7200 },
+        { name: 'Рамка для планшета', category: 'mount', qty: 1, unitPrice: 5300 },
+        { name: 'Крепление для терминала оплаты', category: 'mount', qty: 1, unitPrice: 2500 },
+      ],
+    }))
+    const names = findSection(kp, 'Оборудование')!.items.map(i => i.name)
+    expect(names).toContain('Кронштейн настенный поворотный')
+    expect(names).toContain('Рамка для планшета')
+    expect(names.filter(n => /кронштейн/i.test(n)).length).toBe(1)  // без хардкодного дубля
+  })
+
+  it('без _mount_lines — fallback на хардкод (mountByType + адаптер + пинпад)', () => {
+    const kp = calculateKP(baseForm({ license_type: 'kiosk', devices: 1 }))
+    const cats = findSection(kp, 'Оборудование')!.items.map(i => i.category)
+    expect(cats).toContain('mount')
+    expect(cats).toContain('adapter')
   })
 })

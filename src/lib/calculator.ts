@@ -148,31 +148,24 @@ export function calculateKP(req: ParsedRequest): KPResult {
       })
     }
 
-    // Кронштейн — по типу крепления (desk/wall)
-    const mountId = mountByType[req.kiosk_type || 'desk']
-    const mount = getProductById(mountId)
-    if (mount) {
-      equipItems.push({
-        name: mount.kpName || mount.name,
-        category: 'mount',
-        qty: req.devices,
-        unitPrice: mount.sellPrice,
-        discount: 0,
-        total: mount.sellPrice * req.devices,
-      })
-    }
-
-    // Адаптер для планшета
-    const adapter = getProductById('mount-onkron-adapter')
-    if (adapter) {
-      equipItems.push({
-        name: adapter.kpName || adapter.name,
-        category: 'adapter',
-        qty: req.devices,
-        unitPrice: adapter.sellPrice,
-        discount: 0,
-        total: adapter.sellPrice * req.devices,
-      })
+    // Крепление: выбранный кронштейн + рамка-держатель (если не в комплекте) +
+    // крепление пинпада. Приоритет — живые строки из формы (_mount_lines, из
+    // каталога «Кронштейны»); иначе fallback на хардкод (mountByType + адаптер +
+    // пинпад). Убирает хардкод и даёт менеджеру выбор крепления.
+    if (req._mount_lines && req._mount_lines.length > 0) {
+      for (const l of req._mount_lines) {
+        equipItems.push({
+          name: l.name, category: l.category, qty: l.qty,
+          unitPrice: l.unitPrice, discount: 0, total: l.unitPrice * l.qty,
+        })
+      }
+    } else {
+      const mount = getProductById(mountByType[req.kiosk_type || 'desk'])
+      if (mount) equipItems.push({ name: mount.kpName || mount.name, category: 'mount', qty: req.devices, unitPrice: mount.sellPrice, discount: 0, total: mount.sellPrice * req.devices })
+      const adapter = getProductById('mount-onkron-adapter')
+      if (adapter) equipItems.push({ name: adapter.kpName || adapter.name, category: 'adapter', qty: req.devices, unitPrice: adapter.sellPrice, discount: 0, total: adapter.sellPrice * req.devices })
+      const pinpad = getProductById('mount-pinpad-bracket')
+      if (pinpad) equipItems.push({ name: pinpad.kpName || pinpad.name, category: 'peripheral', qty: req.devices, unitPrice: pinpad.sellPrice, discount: 0, total: pinpad.sellPrice * req.devices })
     }
 
     // Периферия (дефолт) — все позиции из catalog.peripherals, × devices.
@@ -186,19 +179,6 @@ export function calculateKP(req: ParsedRequest): KPResult {
         unitPrice: p.sellPrice,
         discount: 0,
         total: p.sellPrice * req.devices,
-      })
-    }
-
-    // Крепление пинпада — × devices (на каждый планшет свой эквайринг).
-    const pinpad = getProductById('mount-pinpad-bracket')
-    if (pinpad) {
-      equipItems.push({
-        name: pinpad.kpName || pinpad.name,
-        category: 'peripheral',
-        qty: req.devices,
-        unitPrice: pinpad.sellPrice,
-        discount: 0,
-        total: pinpad.sellPrice * req.devices,
       })
     }
 

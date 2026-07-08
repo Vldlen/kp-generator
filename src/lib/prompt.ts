@@ -27,6 +27,7 @@ export interface ParsedRequest {
   selected_family?: string | null   // нормализованный ключ семейства (catalog-schema)
   complectation?: { processor?: string | null; scanner?: string | null; variant?: string | null }
   selected_options?: string[]        // id опций (CatalogItem.id)
+  selected_mount_id?: string | null  // id выбранного кронштейна (планшетный Kiosk)
   // Дополнительные ИННО-лицензии поверх основной (2026-05-26).
   // Ключи из INNO_ADDON_LICENSES (catalog.ts). Например ['queue'] —
   // Электронная очередь добавится отдельной строкой в «Лицензии и подписки».
@@ -56,4 +57,8 @@ export interface ParsedRequest {
   /** Живые позиции планшетного комплекта из каталога (Планшеты/Кронштейны/
    *  Периферия) — цена + обезличенное имя. Убирает дрейф хардкода catalog.ts. */
   _tablet_kit?: { tabletName?: string; tabletPrice?: number }
+  /** Строки крепления планшетного Kiosk (выбранный кронштейн + рамка-держатель,
+   *  если не в комплекте + крепление пинпада) — собраны формой из живого
+   *  каталога «Кронштейны». Заменяют хардкодный mountByType + адаптер + пинпад. */
+  _mount_lines?: import('./catalog-schema').EquipLine[]
 }

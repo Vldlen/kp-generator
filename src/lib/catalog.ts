@@ -799,6 +799,38 @@ export function getProductById(id: string): Product | undefined {
   return allProducts.find(p => p.id === id)
 }
 
+// ---------- Кронштейны для планшетного Kiosk: роль + держатель ----------
+
+export type MountRole = 'настенный' | 'настольный' | 'стойка' | 'рамка' | 'пинпад' | 'прочее'
+
+/** Роль кронштейна: из колонки «Тип» (приоритет), иначе выводится из названия. */
+export function mountRole(name: string, mountType?: string | null): MountRole {
+  const t = (mountType || '').trim().toLowerCase()
+  if (t.startsWith('настен')) return 'настенный'
+  if (t.startsWith('настол')) return 'настольный'
+  if (t.startsWith('сто'))    return 'стойка'
+  if (t.startsWith('рамк'))   return 'рамка'
+  if (t.startsWith('пин'))    return 'пинпад'
+  const n = name.toLowerCase()
+  if (/эквар|пинпад|терминал/.test(n))  return 'пинпад'
+  if (/столбик|комплекс|стойк/.test(n)) return 'стойка'   // раньше «рамки»: «Рамка на столбике» → стойка
+  if (/^\s*рамк|держател|адаптер\s+для\s+планшет/.test(n)) return 'рамка'
+  if (/настенн/.test(n)) return 'настенный'
+  if (/настольн/.test(n)) return 'настольный'
+  return 'прочее'
+}
+
+/** Роли, попадающие в выбор крепления. Рамка и пинпад — авто-компоненты. */
+export const SELECTABLE_MOUNT_ROLES: MountRole[] = ['настенный', 'настольный', 'стойка']
+
+/** Держатель планшета уже в составе крепления? Флаг «Рамка = в комплекте»
+ *  (приоритет), иначе — по названию (столбик MasterHold). Если true — рамку
+ *  отдельной строкой не добавляем. */
+export function mountFrameIncluded(name: string, kpName?: string | null, flag?: boolean): boolean {
+  if (flag) return true
+  return /столбик|стойка настольн/i.test(`${name} ${kpName || ''}`)
+}
+
 // ---------- Условия оплаты ----------
 
 export const paymentTerms = {
