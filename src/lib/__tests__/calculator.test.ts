@@ -169,8 +169,8 @@ describe('calculateKP — inno clouds Киоск', () => {
       selected_tablet_id: 'tab-redmi-pad2pro',
     }))
     const tablet = findItem(kp, 'Оборудование', 'Планшет')
-    // Redmi Pad 2 Pro → sellPrice 31000
-    expect(tablet?.unitPrice).toBe(31000)
+    // Redmi Pad 2 Pro → sellPrice 33000 (синхронизирован с живой таблицей)
+    expect(tablet?.unitPrice).toBe(33000)
   })
 
   it('без selected_tablet_id берёт первый из tablets[] (OnePlus Pad 3, 65 000 ₽)', () => {
