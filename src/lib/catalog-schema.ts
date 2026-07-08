@@ -49,6 +49,7 @@ export interface FamilyRule {
   fiscalPattern: FiscalPattern
   builtinPrinter: '80мм' | '58мм' | null
   defaultProcessor: string | null
+  photo: string | null      // URL фото семейства (колонка «Фото»)
 }
 
 // ---------- Парсинг цен (русская локаль) ----------
@@ -147,6 +148,7 @@ export function parseFamilyRow(row: Record<string, unknown>): FamilyRule | null 
     fiscalPattern: normFiscalPattern(pick(row, 'Фиск. паттерн', 'Фискальный паттерн', 'fiscal_pattern')),
     builtinPrinter: printerRaw.includes('80') ? '80мм' : printerRaw.includes('58') ? '58мм' : null,
     defaultProcessor: pick(row, 'Процессор по умолчанию', 'Процессор по умолч.', 'default_processor') || null,
+    photo: pick(row, 'Фото', 'photo', 'image') || null,
   }
 }
 
@@ -296,6 +298,7 @@ export interface FamilyCard {
   rule: FamilyRule
   fromPrice: number         // минимальная цена модели — «от N ₽»
   modelCount: number
+  photo: string | null
 }
 export function familyCards(cat: Catalog): FamilyCard[] {
   return cat.families
@@ -306,6 +309,7 @@ export function familyCards(cat: Catalog): FamilyCard[] {
         rule,
         fromPrice: Math.min(...models.map(m => m.sellPrice)),
         modelCount: models.length,
+        photo: rule.photo,
       }
     })
     .filter((x): x is FamilyCard => x !== null)
