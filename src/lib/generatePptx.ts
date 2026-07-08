@@ -137,7 +137,7 @@ const LEFT_CARD: CardMap = {
 }
 
 // --- Правая верхняя: Лицензии и подписки (1 строка) ---
-const RIGHT_TOP_CARD: CardMap = {
+export const RIGHT_TOP_CARD: CardMap = {
   container: 'Shape 83',
   title: 'Text 84',
   headerTexts: ['Text 86', 'Text 88', 'Text 90', 'Text 92', 'Text 94'],
@@ -291,7 +291,7 @@ function expandCardRows(
   return { xml, rows: newRows }
 }
 
-function fillCard(xml: string, card: CardMap, section: KPResult['sections'][0] | null): string {
+export function fillCard(xml: string, card: CardMap, section: KPResult['sections'][0] | null): string {
   if (!section) return removeCard(xml, card)
 
   xml = replaceShapeText(xml, card.title, section.title)
@@ -374,6 +374,25 @@ RIGHT_BOTTOM_CARD.geometry = {
   totalLabelY: RB_TOTAL_Y.label,
   totalValueY: RB_TOTAL_Y.value,
   containerHeight: RIGHT_BOTTOM_HEIGHT,
+}
+
+// Лицензии и подписки (правая верхняя). Шаблон физически содержит 1 строку,
+// но под ИТОГО в карточке ~489K EMU пустого места — хватает клонировать до 3
+// строк, опустив ИТОГО в этот запас, БЕЗ роста контейнера (иначе наедет на
+// «Услуги» ниже). Фикс 2026-07-08: раньше геометрии не было → доп. лицензия
+// (напр. «Электронная очередь») молча пропадала из .pptx, хотя ИТОГО её включал.
+const RT_ROW_Y = [1380344]
+const RT_TOTAL_Y = { sep: 1611064, label: 1720602, value: 1687264 }
+const RT_ROW_GAP = 218815
+const RIGHT_TOP_HEIGHT = 1477008
+RIGHT_TOP_CARD.geometry = {
+  rowYs: RT_ROW_Y,
+  rowGap: RT_ROW_GAP,
+  sampleRowIndex: 0,
+  totalSepY: RT_TOTAL_Y.sep,
+  totalLabelY: RT_TOTAL_Y.label,
+  totalValueY: RT_TOTAL_Y.value,
+  containerHeight: RIGHT_TOP_HEIGHT,
 }
 
 /** Ищет максимальный id из всех <p:cNvPr id="N" …/> в XML. Используется
@@ -520,7 +539,12 @@ function widenCard(
  * Растягивает, если items > чем строк в шаблоне (пушит ИТОГО вниз + растит
  * контейнер). Phase 5 фикса P0-1 (2026-05-14).
  */
-function adjustCardGeometry(xml: string, card: CardMap, actualItems: number): string {
+export function adjustCardGeometry(
+  xml: string,
+  card: CardMap,
+  actualItems: number,
+  opts?: { noGrow?: boolean },
+): string {
   if (!card.geometry || actualItems <= 0) return xml
   const g = card.geometry
 
@@ -537,7 +561,12 @@ function adjustCardGeometry(xml: string, card: CardMap, actualItems: number): st
   xml = shiftShape(xml, card.totalSep, 0, -shift)
   xml = shiftShape(xml, card.totalLabel, 0, -shift)
   xml = shiftShape(xml, card.totalValue, 0, -shift)
-  xml = resizeShape(xml, card.container, null, g.containerHeight - shift)
+
+  // noGrow: не растить контейнер выше оригинала (для карточки лицензий — чтобы
+  // клонированные строки уходили в свободный запас, а не наезжали на «Услуги»).
+  let newHeight = g.containerHeight - shift
+  if (opts?.noGrow) newHeight = Math.min(newHeight, g.containerHeight)
+  xml = resizeShape(xml, card.container, null, newHeight)
 
   return xml
 }
@@ -620,6 +649,11 @@ export async function generateKPPptx(
 
   if (equipSection) {
     kpSlideXml = adjustCardGeometry(kpSlideXml, LEFT_CARD, equipSection.items.length)
+  }
+  // Лицензии: noGrow — клоны уходят в свободный запас карточки, ИТОГО подтягивается
+  // к последней строке, контейнер не растёт (не наезжает на «Услуги»).
+  if (licSection) {
+    kpSlideXml = adjustCardGeometry(kpSlideXml, RIGHT_TOP_CARD, licSection.items.length, { noGrow: true })
   }
   if (svcSection) {
     kpSlideXml = adjustCardGeometry(kpSlideXml, RIGHT_BOTTOM_CARD, svcSection.items.length)
