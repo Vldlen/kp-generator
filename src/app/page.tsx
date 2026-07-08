@@ -754,8 +754,10 @@ async function fetchGoogleSheetProducts(): Promise<{ products: DBProduct[]; cata
   const famRows: Record<string, unknown>[] = []   // вкладка «Правила семейств»
   let idx = 0
 
-  const isNomSheet = (n: string) => n.includes('номенклатура')
-  const isFamSheet = (n: string) => n.includes('правил') || n.includes('семейств')
+  // Принимаем и русские, и английские имена вкладок (менеджер мог импортнуть
+  // CSV как есть → лист называется «nomenclature_kiosks» / «families»).
+  const isNomSheet = (n: string) => n.includes('номенклатура') || n.includes('nomenclature')
+  const isFamSheet = (n: string) => n.includes('правил') || n.includes('семейств') || n.includes('families') || n.includes('family')
 
   // Способ 1: пробуем загрузить как XLSX (содержит все листы сразу)
   try {
