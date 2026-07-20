@@ -135,24 +135,24 @@ describe('calculateKP — inno clouds Киоск', () => {
     expect(equip!.items.length).toBe(8)
   })
 
-  it('дефолтный комплект: subtotal = 88 200 ₽ (тот самый кейс из манагерского бага)', () => {
+  it('дефолтный комплект: subtotal = 97 020 ₽ (тот самый кейс из манагерского бага)', () => {
     const kp = calculateKP(baseForm({ license_type: 'kiosk', devices: 1, kiosk_type: 'desk' }))
     const equip = findSection(kp, 'Оборудование')
-    // OnePlus Pad 3 (65000) + G80 (6200) + adapter (5300) +
-    // БП (3500) + кабель (1100) + угловой (700) + хаб (3900) + пинпад (2500) = 88 200
-    expect(equip!.subtotal).toBe(88200)
+    // OnePlus Pad 3 (71500) + G80 (6820) + adapter (5830) +
+    // БП (3850) + кабель (1210) + угловой (770) + хаб (4290) + пинпад (2750) = 97 020
+    expect(equip!.subtotal).toBe(97020)
   })
 
-  it('настенный — кронштейн mount-onkron-wall-fixed 2000 ₽', () => {
+  it('настенный — кронштейн mount-onkron-wall-fixed 2200 ₽', () => {
     const kp = calculateKP(baseForm({ license_type: 'kiosk', devices: 1, kiosk_type: 'wall' }))
     const mount = findItem(kp, 'Оборудование', 'настенн')
-    expect(mount?.unitPrice).toBe(2000)
+    expect(mount?.unitPrice).toBe(2200)
   })
 
-  it('напольный — кронштейн mount-masterhold-kiosk 28 500 ₽', () => {
+  it('напольный — кронштейн mount-masterhold-kiosk 31 350 ₽', () => {
     const kp = calculateKP(baseForm({ license_type: 'kiosk', devices: 1, kiosk_type: 'floor' }))
     const mount = findItem(kp, 'Оборудование', 'напольн')
-    expect(mount?.unitPrice).toBe(28500)
+    expect(mount?.unitPrice).toBe(31350)
   })
 
   it('3 устройства → все equip-позиции с qty=3 и subtotal×3', () => {
@@ -161,7 +161,7 @@ describe('calculateKP — inno clouds Киоск', () => {
     const kp = calculateKP(baseForm({ license_type: 'kiosk', devices: 3, locations: 1 }))
     const equip = findSection(kp, 'Оборудование')!
     expect(equip.items.every(i => i.qty === 3)).toBe(true)
-    expect(equip.subtotal).toBe(88200 * 3)  // 264 600
+    expect(equip.subtotal).toBe(97020 * 3)  // 291 060
   })
 
   it('selected_tablet_id выбирает указанный планшет', () => {
@@ -171,14 +171,14 @@ describe('calculateKP — inno clouds Киоск', () => {
       selected_tablet_id: 'tab-redmi-pad2pro',
     }))
     const tablet = findItem(kp, 'Оборудование', 'Планшет')
-    // Redmi Pad 2 Pro → sellPrice 33000 (синхронизирован с живой таблицей)
-    expect(tablet?.unitPrice).toBe(33000)
+    // Redmi Pad 2 Pro → sellPrice 36300 (синхронизирован с живой таблицей, +10%)
+    expect(tablet?.unitPrice).toBe(36300)
   })
 
-  it('без selected_tablet_id берёт первый из tablets[] (OnePlus Pad 3, 65 000 ₽)', () => {
+  it('без selected_tablet_id берёт первый из tablets[] (OnePlus Pad 3, 71 500 ₽)', () => {
     const kp = calculateKP(baseForm({ license_type: 'kiosk', devices: 1 }))
     const tablet = findItem(kp, 'Оборудование', 'Планшет')
-    expect(tablet?.unitPrice).toBe(65000)
+    expect(tablet?.unitPrice).toBe(71500)
   })
 
   it('лицензия inno clouds Киоск: unitPrice=10000/мес, months=12, total=120 000 за год', () => {
@@ -890,16 +890,16 @@ describe('calculateKP — все позиции оборудования × devi
     const hub = findItem(kp, 'Оборудование', 'Сетевой хаб')!
     const pinpad = findItem(kp, 'Оборудование', 'Крепление для терминала')!
     expect(hub.qty).toBe(3)
-    expect(hub.total).toBe(3900 * 3)
+    expect(hub.total).toBe(4290 * 3)
     expect(pinpad.qty).toBe(3)
-    expect(pinpad.total).toBe(2500 * 3)
+    expect(pinpad.total).toBe(2750 * 3)
   })
 
   it('1 устройство × 1 локация — всё × 1', () => {
     const kp = calculateKP(baseForm({ license_type: 'kiosk', devices: 1, locations: 1 }))
     const equip = findSection(kp, 'Оборудование')!
     expect(equip.items.every(i => i.qty === 1)).toBe(true)
-    expect(equip.subtotal).toBe(88200)
+    expect(equip.subtotal).toBe(97020)
   })
 })
 
