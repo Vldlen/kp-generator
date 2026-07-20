@@ -267,6 +267,11 @@ type Removal =
 
 const UNDO_TIMEOUT_MS = 6000
 
+// Ставка налога с прибыли (УСН «доходы минус расходы»). Считается от валовой
+// маржи оборудования, чтобы менеджер видел РЕАЛЬНУЮ прибыль после налога и не
+// передавливал скидку. Менялась 10%→15% в 2026-07 — правится здесь одной строкой.
+const PROFIT_TAX_RATE = 0.15
+
 export function KPPreview({ kp, parsed, catalog }: Props) {
   const isInno = kp.company === 'inno'
   const [generating, setGenerating] = useState(false)
@@ -303,7 +308,11 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
     }
     if (!haveCost || sell <= 0) return null
     const profit = sell - cost
-    return { cost, profit, pct: Math.round((profit / sell) * 100) }
+    const netProfit = profit * (1 - PROFIT_TAX_RATE)
+    return {
+      cost, profit, pct: Math.round((profit / sell) * 100),
+      netProfit, netPct: Math.round((netProfit / sell) * 100),
+    }
   })()
 
   useEffect(() => {
@@ -664,6 +673,7 @@ export function KPPreview({ kp, parsed, catalog }: Props) {
             </span>
             <span>себестоимость оборуд.: <b style={{ color: 'var(--text)' }}>{formatMoney(marginInfo.cost)}</b></span>
             <span>маржа: <b style={{ color: marginInfo.pct >= 20 ? 'var(--accent)' : 'var(--danger)' }}>{formatMoney(marginInfo.profit)} · {marginInfo.pct}%</b></span>
+            <span>чистая (после налога {Math.round(PROFIT_TAX_RATE * 100)}%): <b style={{ color: 'var(--text)' }}>{formatMoney(marginInfo.netProfit)} · {marginInfo.netPct}%</b></span>
           </div>
         </div>
       )}
