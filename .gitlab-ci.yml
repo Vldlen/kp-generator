@@ -1,0 +1,17 @@
+# Деплой в Vercel из GitLab CI — замена GitHub-интеграции (HANDOVER §3.2).
+# Job СПЯЩИЙ: не запускается, пока в GitLab-проекте (Settings → CI/CD → Variables)
+# не заданы переменные:
+#   VERCEL_TOKEN      — токен аккаунта Vercel (masked)
+#   VERCEL_ORG_ID     — id команды/аккаунта Vercel (есть в .vercel/project.json)
+#   VERCEL_PROJECT_ID — id проекта (есть в .vercel/project.json)
+# Перед включением отвязать GitHub в Vercel: Project → Settings → Git → Disconnect.
+
+deploy-production:
+  image: node:20
+  rules:
+    - if: '$VERCEL_TOKEN && $CI_COMMIT_BRANCH == "main"'
+  script:
+    - npm i -g vercel
+    - vercel pull --yes --environment=production --token=$VERCEL_TOKEN
+    - vercel build --prod --token=$VERCEL_TOKEN
+    - vercel deploy --prebuilt --prod --token=$VERCEL_TOKEN
