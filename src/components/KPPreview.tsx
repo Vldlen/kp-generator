@@ -3,7 +3,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { formatMoney, recomputeLineTotal, sanityWarnings, type KPResult, type LineItem } from '@/lib/calculator'
 import type { ParsedRequest } from '@/lib/prompt'
-import type { DBProduct } from '@/lib/supabase'
+import type { DBProduct } from '@/lib/catalog-types'
 import {
   generateKPPptx,
   PPTX_TEMPLATE_LIMITS,
@@ -51,7 +51,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 interface Props {
   kp: KPResult
   parsed: ParsedRequest
-  catalog: DBProduct[]  // каталог из Supabase
+  catalog: DBProduct[]  // каталог (Google-таблица / встроенный снимок)
 }
 
 // Найти продукт по имени в каталоге. Ищем и по реальному name, и по kp_name —

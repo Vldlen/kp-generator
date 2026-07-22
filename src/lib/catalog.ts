@@ -651,7 +651,7 @@ export type FiscalDeviceKey = keyof typeof FISCAL_DEVICES
 export type FiscalPriceMap = Record<FiscalDeviceKey, number>
 
 /** Извлекает живые цены фискальных устройств из текущего каталога
- *  (Google Sheets / Supabase / fallback). Если устройство не найдено —
+ *  (Google Sheets / встроенный fallback). Если устройство не найдено —
  *  цена 0, и calculator такую строку в КП не положит. */
 export function resolveFiscalPrices(catalog: Array<{ name: string; sell_price: number }>): FiscalPriceMap {
   const result = {} as FiscalPriceMap

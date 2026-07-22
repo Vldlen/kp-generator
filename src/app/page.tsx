@@ -20,7 +20,7 @@ import {
   SELECTABLE_MOUNT_ROLES,
   type SubscriptionPeriod,
 } from '@/lib/catalog'
-import { fetchAllCatalog, type DBProduct } from '@/lib/supabase'
+import type { DBProduct } from '@/lib/catalog-types'
 import {
   buildCatalog, familyCards, familyModels, familyAxes, familyOptions,
   defaultSelection, resolveModel, resolveChosenOptions, buildKioskEquipment,
@@ -65,7 +65,7 @@ const categoryMap: Record<string, string> = {
   peripheral: 'peripheral',
 }
 
-// Fallback: конвертируем catalog.ts в формат DBProduct для работы без Supabase
+// Fallback: конвертируем catalog.ts в формат DBProduct — встроенный снимок каталога
 const fallbackCatalog: DBProduct[] = allProducts.map(p => ({
   id: p.id,
   name: p.name,
@@ -106,9 +106,9 @@ export default function Home() {
   const [theme, setTheme] = useState<'light' | 'dark'>('light')
   const [dateStr, setDateStr] = useState('')
 
-  // Загружаем каталог: сначала Google Sheets (все листы), потом Supabase как
-  // fallback. Источник фиксируем в catalogSource — если живые данные не
-  // подъехали, менеджер увидит предупреждение (см. баннер ниже).
+  // Загружаем каталог из Google Sheets (все листы). Источник фиксируем в
+  // catalogSource — если живые данные не подъехали, работаем на встроенном
+  // снимке и менеджер видит предупреждение (см. баннер ниже).
   useEffect(() => {
     let done = false
     fetchGoogleSheetProducts()
@@ -120,14 +120,10 @@ export default function Home() {
         done = true
       })
       .catch(() => {
-        // Fallback на Supabase (для старой схемы). catalog2 остаётся встроенным.
-        fetchAllCatalog()
-          .then(data => {
-            if (data.length > 0) { setCatalog(data); setCatalogSource('live') }
-            else setCatalogSource('fallback')
-            done = true
-          })
-          .catch(() => { setCatalogSource('fallback'); done = true })
+        // Google Sheets недоступен — работаем на встроенном снимке каталога.
+        // (Supabase-фолбэк удалён 22.07.2026: его проект давно не существует.)
+        setCatalogSource('fallback')
+        done = true
       })
     // Страховка: если ни один путь не завершился (висит) — через 20с показываем
     // предупреждение о резервных данных, чтобы UI не остался в «загрузке» навсегда.
@@ -170,7 +166,7 @@ export default function Home() {
     })
   }
 
-  // Живой price-map фискалки из текущего каталога (Google Sheets / Supabase /
+  // Живой price-map фискалки из текущего каталога (Google Sheets /
   // встроенный fallback). Используется UI-превью «Фискальный пакет» и при
   // расчёте КП — calculator получает map через enrichedForm._fiscal_prices.
   // Пересчитывается только при изменении каталога (sync кнопкой или re-fetch).

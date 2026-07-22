@@ -1,11 +1,6 @@
-import { createClient } from '@supabase/supabase-js'
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
-
-// ---------- Типы из Supabase ----------
+// Тип строки каталога. Исторически жил в lib/supabase.ts — Supabase-клиент
+// вычищен 22.07.2026: его проект давно удалён, реальный источник каталога —
+// Google-таблица, резерв — встроенный снимок (см. catalog-fallback.ts).
 
 export interface DBProduct {
   id: string
@@ -39,27 +34,4 @@ export interface DBProduct {
   /** «Рамка» = «в комплекте» — держатель планшета уже в составе крепления
    *  (напр. стойка-столбик MasterHold), отдельной рамкой не добавляем. */
   frame_included?: boolean
-}
-
-// ---------- API ----------
-//
-// Внимание: anon-ключ Supabase летит в клиентский bundle. После применения
-// миграции supabase/004_lock_rls.sql на anon доступно только SELECT
-// (is_active = true). Запись возможна только под service_role (Supabase
-// Studio / админка). cost_price/margin продолжают отдаваться (см.
-// комментарий в миграции — это сознательное решение команды).
-
-export async function fetchAllCatalog(): Promise<DBProduct[]> {
-  const { data, error } = await supabase
-    .from('catalog')
-    .select('*')
-    .eq('is_active', true)
-    .order('category')
-    .order('sell_price', { ascending: true })
-
-  if (error) {
-    console.error('Error fetching catalog:', error)
-    return []
-  }
-  return data || []
 }
