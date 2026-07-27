@@ -46,6 +46,7 @@ function baseForm(over: Partial<ParsedRequest> = {}): ParsedRequest {
     need_implementation: false,
     content_items: 0,
     payment_type: 'prepay100',
+    delivery_cost: null,
     notes: '',
     selected_kiosk_options: [],
     additional_licenses: [],
@@ -125,6 +126,47 @@ describe('recomputeLineTotal', () => {
 // ─────────────────────────────────────────────────────────────────────────
 // calculateKP — inno clouds Киоск (планшетный комплект)
 // ─────────────────────────────────────────────────────────────────────────
+
+describe('calculateKP — Доставка', () => {
+  const DEFAULT_KIOSK_SUBTOTAL = 97020  // см. тест «дефолтный комплект» ниже
+
+  it('delivery_cost > 0 → строка «Доставка» qty=1 в «Оборудовании» + в subtotal и итог', () => {
+    const without = calculateKP(baseForm({ license_type: 'kiosk', devices: 1, kiosk_type: 'desk', delivery_cost: null }))
+    const kp = calculateKP(baseForm({ license_type: 'kiosk', devices: 1, kiosk_type: 'desk', delivery_cost: 5000 }))
+    const equip = findSection(kp, 'Оборудование')!
+    const delivery = findItem(kp, 'Оборудование', 'Доставка')
+    expect(delivery).toBeDefined()
+    expect(delivery!.qty).toBe(1)
+    expect(delivery!.unitPrice).toBe(5000)
+    expect(delivery!.total).toBe(5000)
+    expect(equip.subtotal).toBe(DEFAULT_KIOSK_SUBTOTAL + 5000)
+    // grandTotal включает и лицензии/подписку — проверяем дельту, а не абсолют.
+    expect(kp.grandTotal - without.grandTotal).toBe(5000)
+  })
+
+  it('delivery_cost=1 не масштабируется по devices (qty всегда 1)', () => {
+    const kp = calculateKP(baseForm({ license_type: 'kiosk', devices: 3, delivery_cost: 7000 }))
+    const delivery = findItem(kp, 'Оборудование', 'Доставка')
+    expect(delivery!.qty).toBe(1)
+    expect(delivery!.total).toBe(7000)
+  })
+
+  it('delivery_cost=0 (самовывоз) → строки «Доставка» нет', () => {
+    const kp = calculateKP(baseForm({ license_type: 'kiosk', devices: 1, delivery_cost: 0 }))
+    expect(findItem(kp, 'Оборудование', 'Доставка')).toBeUndefined()
+  })
+
+  it('delivery_cost=null → строки «Доставка» нет', () => {
+    const kp = calculateKP(baseForm({ license_type: 'kiosk', devices: 1, delivery_cost: null }))
+    expect(findItem(kp, 'Оборудование', 'Доставка')).toBeUndefined()
+  })
+
+  it('чистая лицензия без «Оборудования» (findir) → доставка игнорируется, без падения', () => {
+    const kp = calculateKP(baseForm({ license_type: 'findir', findir_tariff: 'start', delivery_cost: 5000 }))
+    expect(findSection(kp, 'Оборудование')).toBeUndefined()
+    expect(kp.sections.every(s => !s.items.some(i => i.name === 'Доставка'))).toBe(true)
+  })
+})
 
 describe('calculateKP — inno clouds Киоск', () => {
   it('дефолтный комплект (1 устр, настольный, год) даёт 8 позиций оборудования', () => {

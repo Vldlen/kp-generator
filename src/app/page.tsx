@@ -46,6 +46,7 @@ const defaultForm: ParsedRequest = {
   need_implementation: false,
   content_items: 0,
   payment_type: 'prepay100',
+  delivery_cost: null,  // обязательно при наличии оборудования (см. hasEquipment)
   notes: '',
   selected_kiosk_options: [],
   additional_licenses: [],
@@ -382,6 +383,10 @@ export default function Home() {
   }
 
   const isInno = form.company === 'inno'
+  // Есть ли в КП оборудование: только планшетный Kiosk и Kiosk PRO дают раздел
+  // «Оборудование» (см. calculator.ts). Для них поле «Доставка» обязательно.
+  const hasEquipment = form.license_type === 'kiosk' || form.license_type === 'kiosk_pro'
+  const deliveryMissing = hasEquipment && form.delivery_cost == null
 
   return (
     <main className="pc-app">
@@ -772,6 +777,24 @@ export default function Home() {
               </Section>
             )}
 
+            {/* Доставка — обязательна при наличии оборудования (kiosk / kiosk_pro).
+                Гейтит кнопку «Рассчитать КП» через deliveryMissing. */}
+            {hasEquipment && (
+              <Section title="Доставка">
+                <label className="pc-flab">
+                  Стоимость доставки, ₽ <span className="text-[var(--accent)]">*</span>
+                </label>
+                <DeliveryInput value={form.delivery_cost} onChange={v => update('delivery_cost', v)} />
+                <p className="mt-2 font-mono text-xs" style={{ color: form.delivery_cost == null ? 'var(--accent)' : 'var(--text-2)' }}>
+                  {form.delivery_cost == null
+                    ? 'Обязательно: укажите сумму или 0, если самовывоз / входит в стоимость.'
+                    : form.delivery_cost > 0
+                      ? 'Пойдёт отдельной строкой «Доставка» в раздел «Оборудование».'
+                      : 'Самовывоз / включено — строки «Доставка» в КП не будет.'}
+                </p>
+              </Section>
+            )}
+
             {/* Оплата */}
             <Section title="Условия оплаты">
               <div className="grid grid-cols-2 gap-3">
@@ -802,7 +825,7 @@ export default function Home() {
                 <button
                   type="button"
                   onClick={handleGenerate}
-                  disabled={!form.client_name.trim() || (form.license_type === 'kiosk_pro' && !form.selected_family)}
+                  disabled={!form.client_name.trim() || (form.license_type === 'kiosk_pro' && !form.selected_family) || deliveryMissing}
                   className="pc-cta"
                 >
                   <span className="pc-cta-txt">Рассчитать КП</span>
@@ -1397,6 +1420,41 @@ function NumberInput({ value, onChange, min, max }: {
       }}
       className="pc-input pc-num-field"
       style={{ textAlign: 'center', maxWidth: '150px' }}
+    />
+  )
+}
+
+// Ввод стоимости доставки. В отличие от NumberInput различает «не заполнено»
+// (null → пусто, гейтит расчёт) и «0» (самовывоз/включено — валидный ввод).
+function DeliveryInput({ value, onChange }: {
+  value: number | null; onChange: (v: number | null) => void
+}) {
+  const [draft, setDraft] = useState(value == null ? '' : String(value))
+  const [focused, setFocused] = useState(false)
+
+  // Синхронизируем draft с внешним value, когда поле не в фокусе
+  // (тот же приём, что в NumberInput).
+  if (!focused) {
+    const want = value == null ? '' : String(value)
+    if (draft !== want) setDraft(want)
+  }
+
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      value={draft}
+      placeholder="— укажите сумму —"
+      onFocus={e => { setFocused(true); e.target.select() }}
+      onChange={e => setDraft(e.target.value.replace(/[^0-9]/g, ''))}
+      onBlur={() => {
+        setFocused(false)
+        const cleaned = draft.replace(/[^0-9]/g, '')
+        onChange(cleaned === '' ? null : Math.min(100_000_000, parseInt(cleaned, 10)))
+      }}
+      onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+      className="pc-input pc-num-field"
+      style={{ textAlign: 'center', maxWidth: '200px' }}
     />
   )
 }

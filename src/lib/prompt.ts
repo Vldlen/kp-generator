@@ -20,6 +20,12 @@ export interface ParsedRequest {
   need_implementation: boolean
   content_items: number
   payment_type: 'prepay100' | 'installment3'
+  /** Стоимость доставки, ₽ (2026-07-16). Обязательное поле формы, когда в КП
+   *  есть оборудование (license_type kiosk / kiosk_pro) — менеджеры забывали
+   *  выставлять счёт на доставку. null = не заполнено (форма блокирует расчёт);
+   *  число (в т.ч. 0 — самовывоз/включено) = заполнено. Если > 0 — уходит
+   *  отдельной строкой «Доставка» в раздел «Оборудование» КП и в итог. */
+  delivery_cost: number | null
   notes: string
   selected_kiosk_options: string[]  // IDs опций из каталога (ККТ, ФН, принтеры, сканеры и т.д.)
   // ── Новая схема каталога (feature/kiosk-catalog-redesign) ──

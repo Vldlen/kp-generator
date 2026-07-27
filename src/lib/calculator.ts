@@ -298,6 +298,23 @@ export function calculateKP(req: ParsedRequest): KPResult {
     }
   }
 
+  // ===== ДОСТАВКА =====
+  // Отдельная строка в «Оборудовании» (2026-07-16). В форме поле обязательное
+  // при наличии железа — менеджеры забывали выставлять счёт на доставку.
+  // Добавляем только если задана и > 0 (0 = самовывоз/включено, строку не рисуем).
+  // qty=1 — доставка на весь заказ, не × devices. Ставится ДО расчёта grandTotal,
+  // поэтому входит и в subtotal «Оборудования», и в итог.
+  if (req.delivery_cost && req.delivery_cost > 0) {
+    const equipSection = sections.find(s => s.title === 'Оборудование')
+    if (equipSection) {
+      equipSection.items.push({
+        name: 'Доставка', category: 'delivery', qty: 1,
+        unitPrice: req.delivery_cost, discount: 0, total: req.delivery_cost,
+      })
+      equipSection.subtotal += req.delivery_cost
+    }
+  }
+
   // ===== ЛИЦЕНЗИИ =====
   // licItems поднят на уровень выше: основная лицензия и add-on'ы кладутся
   // в одну секцию «Лицензии и подписки» (см. блок дополнительных лицензий ниже).
