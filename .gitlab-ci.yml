@@ -15,3 +15,17 @@ deploy-production:
     - vercel pull --yes --environment=production --token=$VERCEL_TOKEN
     - vercel build --prod --token=$VERCEL_TOKEN
     - vercel deploy --prebuilt --prod --token=$VERCEL_TOKEN
+
+# --- Автодеплой на инно-сервер (VM 151, §5.9) ---
+# Раннер: shell на VM 151 (tag inno-vm151). Собирает образ из этого пуша и
+# пересоздаёт контейнер. build-args — из Settings → CI/CD → Variables.
+deploy-inno:
+  stage: deploy
+  tags:
+    - inno-vm151
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  script:
+    - docker build --build-arg NEXT_PUBLIC_SUPABASE_URL="$KP_SUPABASE_URL" --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY="$KP_ANON_KEY" -t inno/kp-generator:latest "$CI_PROJECT_DIR"
+    - cd /opt/inno/deploy-inno && docker compose up -d kp-generator
+    - docker image prune -f
